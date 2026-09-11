@@ -56,5 +56,8 @@ jobs:
             echo "flag=--live" >> $GITHUB_OUTPUT
           fi
 
+      - name: Tests
+        run: node tests/test-all.mjs
+
       - name: Compare with the official scores
         run: node scripts/audit-scores.mjs ${{ steps.mode.outputs.flag }}

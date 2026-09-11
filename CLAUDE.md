@@ -46,6 +46,12 @@ explain them in plain language, no build tools, no frameworks.
 - Sentence case, plain words, no jargon in any UI text.
 - Times display in the viewer's local zone; only the lock is anchored to Eastern.
 
+## Tests
+
+`node tests/test-all.mjs` — run before every push. Covers the live-vs-authoritative
+score reconcile rule and the shrinking-roster ladder. The workflow runs it too, so a
+broken rule fails the scheduled check instead of quietly writing bad scores.
+
 ## Before every push
 
 Bump BOTH `VERSION` in `js/config.js` AND the `?v=` on the stylesheet link in
