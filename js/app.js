@@ -19,6 +19,7 @@ const state = {
   showJoin: false,
   pendingInvite: null,
   recapPlayer: null,
+  showCoach: false,        // a veteran tapped "How this works" to reopen it
   commishWeek: null,
   invite: new URLSearchParams(location.search).get("join"),
 };
@@ -193,6 +194,17 @@ function seasonPoints(playerId) {
 
 const spentIn = week => lineupOf(state.player?.id, week).reduce((t, l) => t + l.price, 0);
 
+// How many weeks this player has actually put a full team in. Used to decide
+// whether they still need the explainer — experience, not the calendar.
+function weeksPlayed() {
+  if (!state.player) return 0;
+  let n = 0;
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    if (lineupOf(state.player.id, w).length >= rosterFor(w)) n++;
+  }
+  return n;
+}
+
 // What a couple has actually scored so far. This is the most useful thing we
 // can put on a card — it turns an abstract price into "is that worth it?",
 // and it teaches the scoring without anyone reading the rules.
@@ -341,7 +353,14 @@ function renderLineup() {
 
     // An empty team is exactly when someone needs telling what this is. It
     // disappears the moment they pick anyone, and comes back if they clear out.
-    if (!mine.length) {
+    //
+    // It also steps aside once YOU have built a couple of full teams — not on a
+    // date. Someone joining in week 6 needs it as much as anyone did in week 1,
+    // and a veteran who keeps seeing it learns to scroll past banners, which is
+    // how the warnings that matter get missed. The link stays forever.
+    if (!mine.length && weeksPlayed() >= 2 && !state.showCoach) {
+      html += `<p class="hint"><button type="button" class="linkbtn" id="showcoach">How this works</button></p>`;
+    } else if (!mine.length) {
       html += `<div class="coach">
         <b>How this works</b>
         <ol>
@@ -436,6 +455,7 @@ function renderLineup() {
 
   $("#content").innerHTML = html;
 
+  if ($("#showcoach")) $("#showcoach").onclick = () => { state.showCoach = true; render(); };
   $("#content").querySelectorAll("[data-add]").forEach(b => b.onclick = () => addCouple(b.dataset.add));
   $("#content").querySelectorAll("[data-drop]").forEach(b => b.onclick = () => dropCouple(b.dataset.drop));
   $("#content").querySelectorAll("[data-elim]").forEach(b =>
