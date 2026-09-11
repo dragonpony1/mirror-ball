@@ -48,7 +48,7 @@ $g.FillRectangle($plate, ($qx - 18), ($qy - 18), ($qrSize + 36), ($qrSize + 36))
 $g.DrawImage($qr, $qx, $qy, $qrSize, $qrSize)
 
 $g.DrawString("League passcode", $fLabel, $dim, ($W / 2), 880, $center)
-$g.DrawString("mirrorball", $fCode, $gold, ($W / 2), 918, $center)
+$g.DrawString("mball", $fCode, $gold, ($W / 2), 918, $center)
 $g.DrawString("dragonpony1.github.io/mirror-ball", $fUrl, $white, ($W / 2), 1000, $center)
 $g.DrawString("Build a team of 5 couples under a `$50,000 cap.", $fLabel, $dim, ($W / 2), 1060, $center)
 $g.DrawString("You score what the judges score.", $fLabel, $dim, ($W / 2), 1096, $center)
