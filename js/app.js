@@ -40,6 +40,8 @@ const state = {
   setInterval(whenAwake(updateTicker), 45_000);
   setTimeout(maybeInstallTip, 2000);
   document.addEventListener("visibilitychange", () => {
+    // Stop every animation the moment the app leaves the screen.
+    document.body.classList.toggle("asleep", document.hidden);
     if (document.hidden) return;
     liveTick(); updateTicker(); checkForUpdate();
   });
@@ -1514,7 +1516,7 @@ async function checkForUpdate() {
 function makeGlitter() {
   const box = $("#glitter");
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < 44; i++) {
+  for (let i = 0; i < 34; i++) {
     const s = document.createElement("i");
     s.style.left = Math.random() * 100 + "%";
     s.style.top = Math.random() * 100 + "%";

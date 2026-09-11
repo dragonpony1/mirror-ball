@@ -48,12 +48,28 @@ body {
 .beam {
   position: absolute; top: -40vh; left: 50%; width: 80vw; height: 160vh;
   margin-left: -40vw; transform-origin: 50% 25%;
+  /* Softness is baked into the gradient stops on purpose. A filter: blur() on
+     an element this size has to be re-rendered every single frame, forever,
+     and is far and away the most expensive thing a page like this can do to a
+     phone — it's what makes one run hot and eat battery while the app is open.
+     The stops below look the same and cost nothing. */
   background: conic-gradient(from 180deg at 50% 25%,
-    transparent 0deg, rgba(255,210,74,.10) 8deg, transparent 16deg,
-    transparent 40deg, rgba(255,45,149,.10) 48deg, transparent 56deg);
-  filter: blur(6px);
+    transparent 0deg,
+    rgba(255,210,74,.03) 4deg, rgba(255,210,74,.09) 10deg, rgba(255,210,74,.03) 16deg,
+    transparent 22deg, transparent 40deg,
+    rgba(255,45,149,.03) 44deg, rgba(255,45,149,.09) 50deg, rgba(255,45,149,.03) 56deg,
+    transparent 62deg);
+  will-change: transform;          /* its own layer, so rotating never repaints the page */
   animation: sweep 26s linear infinite;
 }
+
+/* Nothing should still be animating while the app is off screen. Browsers
+   usually throttle this themselves, but an installed app sitting in the
+   background is exactly where a phone "acts weird", so be explicit. */
+body.asleep .beam,
+body.asleep .glitter i,
+body.asleep .ball,
+body.asleep .wordmark::after { animation-play-state: paused; }
 .beam-b { animation-duration: 39s; animation-direction: reverse; opacity: .7; }
 
 @keyframes sweep { to { transform: rotate(360deg); } }
