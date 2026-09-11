@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "2.1";
+export const VERSION = "2.2";
 
 export const SEASON = 35;
 

@@ -178,6 +178,13 @@ function rosterFor(week) {
 // strip hides those, and the lineup screen shows the trophy instead of a board
 // nobody could ever fill.
 const weekPlayable = week => activeCast(week).length >= 2;
+
+// A week only takes picks once it's the week actually in play. Running ahead
+// used to be allowed and was a genuine exploit: the price you pay is frozen
+// onto your pick, so buying next week's couples BEFORE the show reprices them
+// bought them at the old, cheaper rate — with no real downside, since an
+// eliminated pick could just be dropped and the money spent again.
+const pickable = week => !locked(week) && weekPlayable(week) && week === currentWeek();
 const stillStanding = () => CAST.filter(c => !state.scores.some(s => s.couple_id === c.id && s.eliminated));
 
 // The cap shrinks with the team, or it stops biting — $50,000 buys the three
@@ -275,7 +282,7 @@ function carryList(playerId, fromWeek, toWeek) {
 async function maybeCarryForward() {
   if (!state.player || !state.league) return;
   const week = currentWeek();
-  if (locked(week) || !weekPlayable(week)) return;
+  if (!pickable(week)) return;
   if (lineupOf(state.player.id, week).length) return;
   const from = lastPlayedWeek(state.player.id, week);
   if (from == null) return;
@@ -507,6 +514,31 @@ function renderLineup() {
     return;
   }
 
+  // Not locked, but not this week's business either. Show the board so people
+  // can plan, but nothing is buyable — see `pickable` for why.
+  if (!isLocked && !pickable(week)) {
+    const open = currentWeek();
+    html += `<div class="notopen">
+      <b>Week ${week} isn't open yet</b>
+      <span>It opens once week ${week - 1}'s show is done. Prices move after every show — a couple who dances well gets dearer — so these are only a guess at what they'll cost.</span>
+      <span style="margin-top:6px">Week ${open} is the one to pick right now. <button type="button" class="linkbtn" id="gonow">Take me there</button></span>
+    </div>`;
+    html += `<h2>Who's still dancing</h2><div class="slots">`;
+    for (const c of activeCast(week).slice().sort((a, b) => priceIn(b.id, week) - priceIn(a.id, week))) {
+      html += `<div class="slot filled" style="opacity:.72">
+        ${medallionHtml(c)}
+        <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
+          ${formLine(c, week)}</span>
+        <span class="price">${money(priceIn(c.id, week))}<small>for now</small></span>
+      </div>`;
+    }
+    html += `</div>`;
+    $("#content").innerHTML = html;
+    if ($("#gonow")) $("#gonow").onclick = () => { state.week = open; buildWeekStrip(); render(); };
+    measureHeader();
+    return;
+  }
+
   if (isLocked) {
     html += `<p class="hint"><span class="pill locked">Locked</span> Lineups closed ${esc(when)}.</p>`;
     html += lockedLineupHtml(week);
@@ -706,7 +738,7 @@ function shade(hex, amt) {
 
 async function addCouple(id) {
   const week = state.week;
-  if (locked(week)) return;
+  if (!pickable(week)) return;
   const mine = lineupOf(state.player.id, week);
   if (mine.some(l => l.couple_id === id)) return;
   if (mine.length >= rosterFor(week)) { $("#banner").textContent = `Your team is full — drop someone first.`; return; }
@@ -728,7 +760,7 @@ async function addCouple(id) {
 
 async function dropCouple(id) {
   const week = state.week;
-  if (locked(week)) return;
+  if (!pickable(week)) return;
   const removed = state.lineups.find(l => l.player_id === state.player.id && l.week === week && l.couple_id === id);
   state.lineups = state.lineups.filter(l => !(l.player_id === state.player.id && l.week === week && l.couple_id === id));
   render();
@@ -738,7 +770,7 @@ async function dropCouple(id) {
 
 async function pickWinner(id) {
   const week = state.week;
-  if (locked(week)) return;
+  if (!pickable(week)) return;
   const prev = winnerPickOf(state.player.id);
   state.winnerpicks = state.winnerpicks.filter(w => w.player_id !== state.player.id);
   state.winnerpicks.push({ player_id: state.player.id, couple_id: id });
@@ -753,7 +785,7 @@ async function pickWinner(id) {
 
 async function pickElim(id, slot = 1) {
   const week = state.week;
-  if (locked(week)) return;
+  if (!pickable(week)) return;
   const prev = elimPickAt(state.player.id, week, slot);
   const mineAt = e => e.player_id === state.player.id && e.week === week && (e.slot || 1) === slot;
   state.elimpicks = state.elimpicks.filter(e => !mineAt(e));

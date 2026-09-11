@@ -272,6 +272,17 @@ h2:first-child { margin-top: 4px; }
 .cnames .form b { color: var(--ink); }
 .cnames .gonehome { display: inline-block; }
 
+/* a week you can look at but not buy in yet */
+.notopen {
+  background: rgba(255,255,255,.05); border: 1px solid var(--edge);
+  border-radius: 13px; padding: 11px 13px; margin-bottom: 12px;
+}
+.notopen > b {
+  display: block; font-family: var(--display); font-size: 1.25rem;
+  letter-spacing: .04em; color: var(--gold); margin-bottom: 3px;
+}
+.notopen > span { display: block; font-size: .82rem; color: var(--dim); line-height: 1.45; }
+
 /* "your team is in" — the confirmation, and where the lock time lives */
 .teamin {
   background: linear-gradient(180deg, rgba(74,222,128,.16), rgba(74,222,128,.06));
