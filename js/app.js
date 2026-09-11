@@ -997,8 +997,12 @@ function updateTicker() {
 // ---------- share / install / updates ----------
 
 function openShare() {
-  $("#modalcode").textContent = state.league?.passcode || LEAGUE_PASSCODE;
+  const code = state.league?.passcode || LEAGUE_PASSCODE;
+  $("#modalcode").textContent = code;
   $("#modaltitle").textContent = state.league ? `Invite to ${state.league.name}` : "Invite the family";
+  // qr.gif is baked for the main league's passcode — don't show a QR that would
+  // drop someone into the wrong league.
+  $("#modalqr").hidden = normCode(code) !== normCode(LEAGUE_PASSCODE);
   $("#sharemodal").hidden = false;
 }
 
