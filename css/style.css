@@ -256,6 +256,14 @@ h2:first-child { margin-top: 4px; }
 .cnames .form b { color: var(--ink); }
 .cnames .gonehome { display: inline-block; }
 
+/* a team inherited from last week — must not be mistaken for one you chose */
+.carried {
+  background: rgba(0,229,208,.1); border: 1px solid rgba(0,229,208,.45);
+  border-radius: 12px; padding: 10px 12px; margin-bottom: 10px;
+  font-size: .84rem; line-height: 1.45; color: var(--ink);
+}
+.carried b { display: block; color: var(--teal); margin-bottom: 2px; }
+
 /* the "how this works" card, shown while a team is still empty */
 .coach {
   background: linear-gradient(180deg, rgba(255,210,74,.12), rgba(255,45,149,.08));

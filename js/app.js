@@ -20,6 +20,7 @@ const state = {
   pendingInvite: null,
   recapPlayer: null,
   showCoach: false,        // a veteran tapped "How this works" to reopen it
+  carriedFrom: null,       // week this week's team was inherited from, if any
   commishWeek: null,
   invite: new URLSearchParams(location.search).get("join"),
 };
@@ -94,6 +95,7 @@ async function loadLeague() {
   state.elimpicks = elims || [];
   render();
   refreshChat();
+  maybeCarryForward();
 }
 
 async function liveTick() {
@@ -214,6 +216,60 @@ function seasonPoints(playerId) {
 }
 
 const spentIn = week => lineupOf(state.player?.id, week).reduce((t, l) => t + l.price, 0);
+
+// ---------- carrying a team forward ----------
+//
+// A lineup doesn't roll over on its own, and a missed week scores zero — which
+// in a game where a normal week is worth 100+ points ends someone's season over
+// a forgotten Tuesday. So when the new week opens with no team saved, last
+// week's is brought across as a starting point: anyone eliminated is dropped,
+// this week's prices apply, and anything that no longer fits the cap or the
+// roster is left out for you to replace. It is always editable until lock.
+
+// The most recent earlier week this player actually fielded a team in.
+function lastPlayedWeek(playerId, before) {
+  for (let w = before - 1; w >= 1; w--) if (lineupOf(playerId, w).length) return w;
+  return null;
+}
+
+function carryList(playerId, fromWeek, toWeek) {
+  const roster = rosterFor(toWeek), weekCap = capFor(toWeek);
+  const keep = [];
+  let spent = 0;
+  for (const l of lineupOf(playerId, fromWeek)) {
+    if (keep.length >= roster) break;
+    if (isOut(l.couple_id, toWeek)) continue;          // they went home
+    const price = priceIn(l.couple_id, toWeek);        // this week's salary
+    if (spent + price > weekCap) continue;             // priced out since last week
+    keep.push({ couple_id: l.couple_id, price });
+    spent += price;
+  }
+  return keep;
+}
+
+// Only ever fills the week that's actually open — tapping ahead to week 9 in
+// week 3 must not quietly commit a team at week 3's prices.
+async function maybeCarryForward() {
+  if (!state.player || !state.league) return;
+  const week = currentWeek();
+  if (locked(week) || !weekPlayable(week)) return;
+  if (lineupOf(state.player.id, week).length) return;
+  const from = lastPlayedWeek(state.player.id, week);
+  if (from == null) return;
+  const keep = carryList(state.player.id, from, week);
+  if (!keep.length) return;
+
+  try {
+    for (const k of keep) {
+      await api.addToLineup(state.player.id, state.league.id, week, k.couple_id, k.price);
+      state.lineups.push({ player_id: state.player.id, week, couple_id: k.couple_id, price: k.price });
+    }
+    state.carriedFrom = from;
+    state.week = week;
+    buildWeekStrip();
+    render();
+  } catch (e) { console.error("carry-forward failed", e); }
+}
 
 // How many weeks this player has actually put a full team in. Used to decide
 // whether they still need the explainer — experience, not the calendar.
@@ -429,6 +485,15 @@ function renderLineup() {
             : ` for ${elimBonus()} bonus points`}. It's free and doesn't use your budget.</li>
         </ol>
         <span class="hint">A cheap couple who dances well is worth more to you than an expensive one who's safe.</span>
+      </div>`;
+    }
+    // Say loudly that this team was inherited, or someone will assume they
+    // already made their choices and never look at it.
+    if (state.carriedFrom != null && state.carriedFrom < week && mine.length) {
+      const short = roster - mine.length;
+      html += `<div class="carried">
+        <b>This is your week ${state.carriedFrom} team, carried over.</b>
+        ${short > 0 ? `${short} slot${short === 1 ? "" : "s"} to fill — someone went home or priced out of your budget. ` : ""}Change anything you like before it locks.
       </div>`;
     }
     html += `<p class="hint">Locks ${esc(when)} — change your team as many times as you like until then.</p>`;
@@ -777,7 +842,13 @@ function renderRules() {
       down with it, about ${money(Math.round(baseCap() / baseRoster()))} a slot.
     </p>
     <p class="hint" style="font-size:.9rem">
-      <b>Season winner</b> is whoever has the most points after the finale.
+      <b>Your team carries over.</b> When a new week opens, last week's team is already there —
+      minus anyone who went home, and minus anyone you can no longer afford. Change it as much
+      as you like before it locks. You're never caught out with an empty team.
+    </p>
+    <p class="hint" style="font-size:.9rem">
+      <b>Points add up all season.</b> Every week's score goes on your total; nothing resets.
+      <b>The winner</b> is whoever has the most when the finale is done.
     </p>
   </div>
   <h2>An example week</h2>
