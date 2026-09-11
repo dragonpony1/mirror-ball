@@ -140,6 +140,54 @@ export function saveWinnerPick(playerId, leagueId, coupleId) {
   });
 }
 
+// ---------- prop bets ----------
+// Props belong to a league; the commissioner writes them or takes them from the
+// app's starter list. Bets are one row per player per prop.
+
+export function listProps(leagueId) {
+  return rest(`dwts_props?season=eq.${SEASON}&league_id=eq.${encodeURIComponent(leagueId)}&select=id,week,text,kind,pays,auto,answer,settled_by&order=created_at`);
+}
+
+export async function addProp(leagueId, week, fields) {
+  const created = await rest("dwts_props", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ league_id: leagueId, season: SEASON, week, ...fields }),
+  });
+  return created[0];
+}
+
+export function settleProp(propId, answer, by) {
+  return rest(`dwts_props?id=eq.${encodeURIComponent(propId)}`, {
+    method: "PATCH", body: JSON.stringify({ answer, settled_by: by }),
+  });
+}
+
+export function removeProp(propId) {
+  return rest(`dwts_props?id=eq.${encodeURIComponent(propId)}`, { method: "DELETE" });
+}
+
+export function listPropBets(leagueId) {
+  return rest(`dwts_propbets?league_id=eq.${encodeURIComponent(leagueId)}&select=player_id,prop_id,answer,balls`);
+}
+
+export function savePropBet(playerId, leagueId, propId, answer, balls) {
+  return rest("dwts_propbets", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({
+      player_id: playerId, league_id: leagueId, prop_id: propId,
+      answer, balls, updated_at: new Date().toISOString(),
+    }),
+  });
+}
+
+export function clearPropBet(playerId, propId) {
+  return rest(`dwts_propbets?player_id=eq.${encodeURIComponent(playerId)}&prop_id=eq.${encodeURIComponent(propId)}`, {
+    method: "DELETE",
+  });
+}
+
 // ---------- judges' scores (shared by every league) ----------
 
 export function listScores() {

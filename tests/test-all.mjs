@@ -54,5 +54,34 @@ for (const [alive, want] of [[16, 5], [8, 5], [7, 5], [6, 4], [5, 3], [4, 2], [3
 is("1 couple left is not a playable week", playable(1), false);
 is("2 couples left is still playable", playable(2), true);
 
+// Mirror Ball economy. It lives in app.js behind a DOM, so the rules are
+// restated here — change DOLLARS_PER_BALL or a payout in app.js and you must
+// change it here too, and this will tell you what it did to the numbers.
+console.log("\nMirror Balls — you only bank from a week you fielded a FULL team");
+const DOLLARS_PER_BALL = 1000, PAYS_YESNO = 10, PAYS_COUPLE = 25;
+const ballsFor = (cap, spent, picked, roster) =>
+  (picked < roster ? 0 : Math.floor(Math.max(0, cap - spent) / DOLLARS_PER_BALL));
+
+is("full team, $14,000 unspent -> 14 balls", ballsFor(50000, 36000, 5, 5), 14);
+is("full team, spent the lot -> 0 balls",    ballsFor(50000, 50000, 5, 5), 0);
+is("NO team banks nothing (else picking nobody would bank 50)", ballsFor(50000, 0, 0, 5), 0);
+is("half a team banks nothing either",       ballsFor(50000, 20000, 3, 5), 0);
+is("a shrunken late-season week scales too", ballsFor(20000, 14000, 2, 2), 6);
+
+console.log("\nprop payouts");
+const propPoints = (pays, balls, betAnswer, winners) =>
+  (winners && winners.includes(betAnswer) ? pays * balls : 0);
+is("one ball on a yes/no",           propPoints(PAYS_YESNO, 1, "yes", ["yes"]), 10);
+is("three balls on a yes/no",        propPoints(PAYS_YESNO, 3, "yes", ["yes"]), 30);
+is("three balls on a couple pick",   propPoints(PAYS_COUPLE, 3, "dewan", ["dewan"]), 75);
+is("a wrong call pays nothing",      propPoints(PAYS_YESNO, 3, "no", ["yes"]), 0);
+is("an unsettled prop pays nothing", propPoints(PAYS_YESNO, 3, "yes", null), 0);
+is("a tie on top scorer pays anyone who named a tied couple",
+   propPoints(PAYS_COUPLE, 1, "shum", ["dewan", "shum"]), 25);
+
+// Props should swing a week, never replace playing properly.
+is("a good props week is a swing, not a replacement",
+   4 * PAYS_YESNO < (5 * 24) / 2, true);
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

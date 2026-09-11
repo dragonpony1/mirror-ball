@@ -183,7 +183,19 @@ main { max-width: 720px; margin: 0 auto; padding: 12px 14px 80px; }
   margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: .9rem;
   background: rgba(255,45,149,.16); border: 1px solid rgba(255,45,149,.5);
 }
-.updatebar:not(:empty) { background: linear-gradient(90deg, var(--gold), #ff9f1c); color: #2a0a3d; font-weight: 700; border-color: #fff8; }
+/* The update nudge has to actually get tapped — eight people all need to be on
+   the same version on a Tuesday night — so it glitters. */
+.updatebar:not(:empty) {
+  color: #2a0a3d; font-weight: 700; border-color: #fff9;
+  background: linear-gradient(100deg,
+    #FFD24A 0%, #FFF3C0 18%, #FF2D95 34%, #FFF3C0 50%, #00E5D0 66%, #FFF3C0 82%, #FFD24A 100%);
+  background-size: 300% 100%;
+  animation: glitterbar 3.6s linear infinite;
+  box-shadow: 0 0 22px rgba(255,210,74,.5);
+}
+@keyframes glitterbar { to { background-position: -300% 0; } }
+body.asleep .updatebar { animation-play-state: paused; }
+.updatebar button { text-decoration: underline; }
 .updatebar button, .banner button { font: inherit; font-weight: 700; text-decoration: underline; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
 
 h2 {
@@ -371,6 +383,60 @@ h2:first-child { margin-top: 4px; }
   text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
   background: var(--bad); color: #fff; margin-top: 3px;
 }
+
+/* ---------- Mirror Balls and prop bets ---------- */
+
+.balls {
+  background: linear-gradient(180deg, rgba(0,229,208,.14), rgba(176,102,255,.08));
+  border: 1px solid rgba(0,229,208,.45); border-radius: 14px;
+  padding: 12px 14px; margin-bottom: 14px; text-align: center;
+}
+.balls > b { display: block; font-family: var(--display); font-size: 2.4rem; letter-spacing: .04em; color: var(--teal); line-height: 1; }
+.balls > span { display: block; font-size: .84rem; color: var(--ink); }
+.balls .hint { font-size: .76rem; }
+
+.prop {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+  padding: 12px 13px; margin-bottom: 11px;
+}
+.prop.won  { border-color: var(--good); box-shadow: 0 0 18px rgba(74,222,128,.22); }
+.prop.lost { border-color: rgba(255,84,112,.55); opacity: .85; }
+.prop.done { opacity: .8; }
+
+.proptop { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.proptop b { font-size: .96rem; line-height: 1.3; }
+.pays {
+  flex: 0 0 auto; font-family: var(--display); font-size: 1.4rem; color: var(--gold); line-height: 1; text-align: right;
+}
+.pays small { display: block; font-family: var(--body); font-size: .6rem; color: var(--dim); letter-spacing: 0; }
+
+.tag { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 8px; border-radius: 999px; margin-top: 6px; }
+.tag.auto { background: rgba(0,229,208,.16); color: var(--teal); border: 1px solid rgba(0,229,208,.4); }
+
+.propopts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.propopts .opt {
+  font: inherit; font-size: .84rem; font-weight: 600; cursor: pointer;
+  padding: 7px 13px; border-radius: 999px;
+  background: rgba(255,255,255,.07); border: 1px solid var(--edge); color: var(--ink);
+}
+.propopts .opt:hover:not(:disabled) { border-color: var(--gold); background: rgba(255,210,74,.14); }
+.propopts .opt.on { background: linear-gradient(180deg, #FFF2C4, var(--gold) 60%, var(--gold-d)); color: #2a0a3d; border-color: #fff8; }
+.propopts .opt.right { outline: 2px solid var(--good); outline-offset: 1px; }
+.propopts .opt:disabled { cursor: default; opacity: .75; }
+
+.stake { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 9px; font-size: .8rem; color: var(--dim); }
+/* NOT .ball — that's the spinning mirror ball in the header, and these
+   inherited its rotation and span like a fruit machine. */
+.stake .stakeball {
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  font: inherit; font-weight: 700; color: var(--ink); line-height: 1;
+  background: rgba(255,255,255,.07); border: 1px solid var(--edge);
+}
+.stake .stakeball.on { background: linear-gradient(145deg, #fff, #8fa0c8); color: #1d0629; border-color: #fff; }
+.stake .stakeball:disabled { opacity: .3; cursor: default; }
+.stake .worth { color: var(--gold); font-weight: 700; }
+.msg .at, .prop .at { font-size: .68rem; color: var(--dim); }
 
 /* ---------- generic buttons ---------- */
 

@@ -1,4 +1,5 @@
-import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS } from "./config.js";
+import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS,
+         DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
 import * as api from "./api.js";
 
@@ -16,6 +17,7 @@ const state = {
   players: [], lineups: [], elimpicks: [],   // this league
   scores: [], prices: [], weeks: [],         // the show itself — shared by every league
   winnerpicks: [],                           // the finale's "who takes the Mirrorball" call
+  props: [], propbets: [],                   // prop bets and what people staked on them
   chat: [],
   showJoin: false,
   pendingInvite: null,
@@ -88,16 +90,20 @@ async function loadShow() {
 
 async function loadLeague() {
   if (!state.league) return;
-  const [players, lineups, elims, winners] = await Promise.all([
+  const [players, lineups, elims, winners, props, bets] = await Promise.all([
     api.listPlayers(state.league.id),
     api.listAllLineups(state.league.id),
     api.listAllElimPicks(state.league.id),
     api.listWinnerPicks(state.league.id),
+    api.listProps(state.league.id),
+    api.listPropBets(state.league.id),
   ]);
   state.players = players || [];
   state.lineups = lineups || [];
   state.elimpicks = elims || [];
   state.winnerpicks = winners || [];
+  state.props = props || [];
+  state.propbets = bets || [];
   render();
   refreshChat();
   maybeCarryForward();
@@ -199,6 +205,90 @@ function capFor(week) {
   return Math.max(scaled, cheapest);
 }
 
+// ---------- Mirror Balls ----------
+//
+// Every $1,000 of cap you don't spend becomes a ball, but only from a week you
+// actually fielded a FULL team in — otherwise picking nobody would bank fifty a
+// week. The balance is derived, never stored, so it can't drift out of step
+// with the lineups and bets it's calculated from.
+
+const propsIn = week => state.props.filter(p => p.week === week);
+const betOn = (playerId, propId) => state.propbets.find(b => b.player_id === playerId && b.prop_id === propId) || null;
+
+function ballsEarned(playerId) {
+  let n = 0;
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    const mine = lineupOf(playerId, w);
+    if (!mine.length || mine.length < rosterFor(w)) continue;   // no full team, no balls
+    const spent = mine.reduce((t, l) => t + l.price, 0);
+    n += Math.floor(Math.max(0, capFor(w) - spent) / DOLLARS_PER_BALL);
+  }
+  return n;
+}
+
+const ballsStaked = playerId =>
+  state.propbets.filter(b => b.player_id === playerId).reduce((t, b) => t + (b.balls || 1), 0);
+
+const ballsLeft = playerId => ballsEarned(playerId) - ballsStaked(playerId);
+
+const propPays = prop => prop.pays ?? (prop.kind === "couple" ? PAYS_COUPLE : PAYS_YESNO);
+
+// Some props settle themselves from the judges' scores we already hold, so
+// nobody has to rule on them and nobody can argue. Returns the set of answers
+// that win — a set, because a tie on "who scored highest" should pay everyone
+// who named any of the couples that tied.
+function autoWinners(prop) {
+  const wk = prop.week;
+  if (!weekHasResults(wk)) return null;
+  const scored = activeCastPlusEliminated(wk)
+    .map(c => ({ id: c.id, s: scoreFor(wk, c.id) })).filter(x => x.s != null);
+  if (!scored.length) return null;
+  const gone = elimsIn(wk);
+
+  if (prop.auto === "perfect30") return new Set([scored.some(x => x.s === 30) ? "yes" : "no"]);
+  if (prop.auto === "top") {
+    const best = Math.max(...scored.map(x => x.s));
+    return new Set(scored.filter(x => x.s === best).map(x => x.id));
+  }
+  if (prop.auto === "lowgoes") {
+    const worst = Math.min(...scored.map(x => x.s));
+    const lowest = scored.filter(x => x.s === worst).map(x => x.id);
+    return new Set([lowest.some(id => gone.includes(id)) ? "yes" : "no"]);
+  }
+  return null;
+}
+
+// null means "not settled yet".
+const winningAnswers = prop =>
+  prop.auto ? autoWinners(prop) : (prop.answer ? new Set([prop.answer]) : null);
+
+const propSettled = prop => !!winningAnswers(prop);
+
+function propPoints(playerId, prop) {
+  const win = winningAnswers(prop);
+  if (!win) return 0;
+  const bet = betOn(playerId, prop.id);
+  if (!bet || !win.has(bet.answer)) return 0;
+  return propPays(prop) * (bet.balls || 1);
+}
+
+// What the app offers when the commissioner adds a prop. The first three need
+// nobody to rule on them at all.
+const STARTER_PROPS = [
+  { text: "Will anyone score a perfect 30?",            kind: "yesno",  auto: "perfect30" },
+  { text: "Who scores highest tonight?",                kind: "couple", auto: "top" },
+  { text: "Will the lowest scorer go home?",            kind: "yesno",  auto: "lowgoes" },
+  { text: "Will Carrie Ann mention a lift?",            kind: "yesno",  auto: null },
+  { text: "Will the judges give a standing ovation?",   kind: "yesno",  auto: null },
+  { text: "Will a celebrity cry?",                      kind: "yesno",  auto: null },
+  { text: "Will Bruno get out of his chair?",           kind: "yesno",  auto: null },
+  { text: "Will anyone dance shirtless?",               kind: "yesno",  auto: null },
+  { text: "Will Julia Stiles wear sequins?",            kind: "yesno",  auto: null },
+  { text: "Will Derek mention his own seasons?",        kind: "yesno",  auto: null },
+  { text: "Will anyone score below 15?",                kind: "yesno",  auto: null },
+  { text: "Whose costume gets talked about most?",      kind: "couple", auto: null },
+];
+
 // ---------- scoring ----------
 
 const lineupOf = (playerId, week) => state.lineups.filter(l => l.player_id === playerId && l.week === week);
@@ -224,6 +314,9 @@ function weekPoints(playerId, week) {
     const s = scoreFor(week, l.couple_id);
     if (s != null) pts += s;
   }
+  // Prop bets settled for this week.
+  for (const prop of propsIn(week)) pts += propPoints(playerId, prop);
+
   // The last episode's winner call, paid on the finale week.
   if (isFinale(week)) {
     const champ = champion(), pick = winnerPickOf(playerId);
@@ -456,6 +549,7 @@ function render() {
   // "Week 12" means nothing on the trophy screen — there was no week 12.
   $("#range").textContent = state.week === trophyWeek() ? "🏆 Final" : weekLabel(state.week);
   if (state.view === "lineup") renderLineup();
+  else if (state.view === "props") renderProps();
   else if (state.view === "ballroom") renderBallroom();
   else if (state.view === "league") renderLeague();
   else renderRules();
@@ -855,6 +949,120 @@ function teamCardHtml(playerId, week, isMe) {
   return html;
 }
 
+// ---------- props ----------
+
+function renderProps() {
+  const week = state.week, me = state.player.id;
+  const list = propsIn(week);
+  const left = ballsLeft(me), earned = ballsEarned(me);
+  const open = pickable(week);
+
+  let html = `<div class="balls">
+    <b>🪩 ${left}</b>
+    <span>Mirror Ball${left === 1 ? "" : "s"} to spend${earned !== left ? ` · ${earned} earned all season` : ""}</span>
+    <span class="hint" style="margin:5px 0 0">Every ${money(DOLLARS_PER_BALL)} of cap you don't spend becomes one, as long as you fielded a full team that week. They never expire.</span>
+  </div>`;
+
+  if (!list.length) {
+    html += `<p class="empty">No prop bets for ${weekLabel(week)} yet.<br>Anyone can add them — they're the side game.</p>`;
+  }
+
+  for (const prop of list) {
+    const bet = betOn(me, prop.id);
+    const win = winningAnswers(prop);
+    const pays = propPays(prop);
+    const won = win && bet && win.has(bet.answer);
+    const options = prop.kind === "couple"
+      ? activeCastPlusEliminated(week).map(c => ({ v: c.id, label: c.celeb }))
+      : [{ v: "yes", label: "Yes" }, { v: "no", label: "No" }];
+
+    html += `<div class="prop ${win ? (bet ? (won ? "won" : "lost") : "done") : ""}">
+      <div class="proptop">
+        <b>${esc(prop.text)}</b>
+        <span class="pays">${pays}<small>a ball</small></span>
+      </div>
+      ${prop.auto ? `<span class="tag auto">settles itself from the scores</span>` : ""}
+      <div class="propopts">
+        ${options.map(o => `<button type="button" class="opt ${bet?.answer === o.v ? "on" : ""} ${win && win.has(o.v) ? "right" : ""}"
+          data-prop="${esc(prop.id)}" data-answer="${esc(o.v)}" ${win || !open ? "disabled" : ""}>${esc(o.label)}</button>`).join("")}
+      </div>
+      ${bet && !win && open ? `<div class="stake">
+        <span>Balls on it:</span>
+        ${[1, 2, 3].slice(0, MAX_BALLS_PER_PROP).map(n => `<button type="button" class="stakeball ${bet.balls === n ? "on" : ""}"
+          data-stake="${esc(prop.id)}" data-balls="${n}" ${n > bet.balls + left ? "disabled" : ""}>${n}</button>`).join("")}
+        <span class="worth">${pays * bet.balls} if right</span>
+        <button type="button" class="linkbtn" data-pull="${esc(prop.id)}">take it back</button>
+      </div>` : ""}
+      ${win ? `<p class="hint" style="margin:6px 0 0">${
+          bet ? (won ? `<b style="color:var(--good)">You had ${esc(labelFor(prop, bet.answer))} for ${bet.balls} — <b>+${pays * bet.balls}</b></b>`
+                     : `<span style="color:var(--bad)">You had ${esc(labelFor(prop, bet.answer))}. It was ${esc([...win].map(a => labelFor(prop, a)).join(" / "))}.</span>`)
+               : `Answer: <b>${esc([...win].map(a => labelFor(prop, a)).join(" / "))}</b>. You sat this one out.`}
+        ${prop.settled_by ? ` <span class="at">— called by ${esc(prop.settled_by)}</span>` : ""}</p>` : ""}
+      ${!win && !bet && open ? `<p class="hint" style="margin:6px 0 0">Costs 1 🪩 to enter. Raise your stake after.</p>` : ""}
+      ${!win && !open ? `<p class="hint" style="margin:6px 0 0">${locked(week) ? "Locked — waiting on the show." : "Opens when the week does."}</p>` : ""}
+    </div>`;
+  }
+
+  html += `<div class="row" style="margin-top:16px">
+    <button class="ghost" id="addprop">＋ Add a prop bet</button>
+    ${list.some(p => !p.auto && !p.answer) && locked(week) ? `<button class="ghost" id="settleprops">Call the results</button>` : ""}
+  </div>`;
+
+  $("#content").innerHTML = html;
+  $("#content").querySelectorAll("[data-prop]").forEach(b =>
+    b.onclick = () => placeBet(b.dataset.prop, b.dataset.answer));
+  $("#content").querySelectorAll("[data-stake]").forEach(b =>
+    b.onclick = () => restake(b.dataset.stake, Number(b.dataset.balls)));
+  $("#content").querySelectorAll("[data-pull]").forEach(b =>
+    b.onclick = () => pullBet(b.dataset.pull));
+  if ($("#addprop")) $("#addprop").onclick = openPropEditor;
+  if ($("#settleprops")) $("#settleprops").onclick = openSettle;
+}
+
+const labelFor = (prop, answer) =>
+  prop.kind === "couple" ? (byId(answer)?.celeb || answer) : (answer === "yes" ? "Yes" : "No");
+
+async function placeBet(propId, answer) {
+  const me = state.player.id;
+  const existing = betOn(me, propId);
+  if (!existing && ballsLeft(me) < 1) {
+    $("#banner").textContent = "No Mirror Balls left — you earn them by not spending your whole cap.";
+    return;
+  }
+  const balls = existing?.balls || 1;
+  const prev = existing ? { ...existing } : null;
+  state.propbets = state.propbets.filter(b => !(b.player_id === me && b.prop_id === propId));
+  state.propbets.push({ player_id: me, prop_id: propId, answer, balls });
+  render();
+  try { await api.savePropBet(me, state.league.id, propId, answer, balls); }
+  catch (e) {
+    state.propbets = state.propbets.filter(b => !(b.player_id === me && b.prop_id === propId));
+    if (prev) state.propbets.push(prev);
+    render(); showError(e);
+  }
+}
+
+async function restake(propId, balls) {
+  const me = state.player.id;
+  const bet = betOn(me, propId);
+  if (!bet) return;
+  if (balls > bet.balls + ballsLeft(me)) { $("#banner").textContent = "Not enough Mirror Balls for that."; return; }
+  const prev = { ...bet };
+  bet.balls = balls;
+  render();
+  try { await api.savePropBet(me, state.league.id, propId, bet.answer, balls); }
+  catch (e) { Object.assign(bet, prev); render(); showError(e); }
+}
+
+async function pullBet(propId) {
+  const me = state.player.id;
+  const prev = betOn(me, propId);
+  state.propbets = state.propbets.filter(b => !(b.player_id === me && b.prop_id === propId));
+  render();
+  try { await api.clearPropBet(me, propId); }
+  catch (e) { if (prev) state.propbets.push(prev); render(); showError(e); }
+}
+
 // ---------- ballroom (the show's results) ----------
 
 function renderBallroom() {
@@ -1017,6 +1225,25 @@ function renderRules() {
       as you like before it locks. You're never caught out with an empty team.
     </p>
     <p class="hint" style="font-size:.9rem">
+      <b>Money you don't spend isn't wasted.</b> Every ${money(DOLLARS_PER_BALL)} of cap left over
+      becomes a 🪩 <b>Mirror Ball</b> — as long as you fielded a full team that week. They never
+      expire, so you can hoard them.
+    </p>
+    <p class="hint" style="font-size:.9rem">
+      <b>Spend Mirror Balls on prop bets.</b> Side bets on the night: <i>will anyone score a 30,
+      will Carrie Ann mention a lift, who tops the leaderboard.</i> Stake 1 to ${MAX_BALLS_PER_PROP}
+      balls on any one. A yes/no pays <b>${PAYS_YESNO} a ball</b>; naming a couple is much harder
+      and pays <b>${PAYS_COUPLE} a ball</b>. Wrong and you lose the balls, not points.
+    </p>
+    <p class="hint" style="font-size:.9rem">
+      <b>Anyone can add a prop</b>, and some settle themselves straight off the judges' scores.
+      The rest someone taps yes or no after the show, same as the scores.
+    </p>
+    <p class="hint" style="font-size:.9rem">
+      <b>You can't buy next week's couples early.</b> A week only opens for picking once the
+      previous show is done — otherwise you'd be buying people before their price moved.
+    </p>
+    <p class="hint" style="font-size:.9rem">
       <b>The last episode is different.</b> Instead of calling who goes home, you call
       <b>who takes the Mirrorball</b> — worth ${winnerBonus()} points, free, on top of your
       normal team that night. Everyone's watching anyway, and it's the last call of the season.
@@ -1045,6 +1272,98 @@ function renderRules() {
 
   <h2>Who types in the scores?</h2>
   <p class="hint">Anyone in the league. After the show, go to <b>Ballroom → Enter scores</b> and type each couple's total out of 30 and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo. A check runs the next morning against the official scores and quietly fixes any slips.</p>`;
+}
+
+// ---------- writing and settling props ----------
+
+function openPropEditor() {
+  const week = state.week;
+  const used = new Set(propsIn(week).map(p => p.text));
+  $("#commish").innerHTML = `
+    <h2>Add a prop bet — ${weekLabel(week)}</h2>
+    <p class="hint">Anyone can add one. The first three settle themselves from the judges' scores, so nobody has to rule on them.</p>
+    <div id="starters">
+      ${STARTER_PROPS.filter(p => !used.has(p.text)).map((p, i) => `<button type="button" class="leaguebtn" data-starter="${i}">
+        ${esc(p.text)}
+        <small>${p.auto ? "⚡ settles itself" : "someone taps yes/no after the show"} · pays ${p.kind === "couple" ? PAYS_COUPLE : PAYS_YESNO} a ball</small>
+      </button>`).join("") || `<p class="hint">All the ready-made ones are already up this week.</p>`}
+    </div>
+    <hr>
+    <h2>Or write your own</h2>
+    <label>The bet<input id="ptext" maxlength="90" autocomplete="off" placeholder="Will anyone trip?"></label>
+    <label>Answered with<select id="pkind">
+      <option value="yesno">Yes or no — pays ${PAYS_YESNO} a ball</option>
+      <option value="couple">Naming a couple — pays ${PAYS_COUPLE} a ball</option>
+    </select></label>
+    <button class="big" id="savemyprop">Add it</button>
+    <p class="hint" id="propmsg"></p>`;
+  $("#commishmodal").hidden = false;
+
+  $("#commish").querySelectorAll("[data-starter]").forEach(b => b.onclick = () => {
+    const pick = STARTER_PROPS.filter(p => !used.has(p.text))[Number(b.dataset.starter)];
+    createProp(pick.text, pick.kind, pick.auto);
+  });
+  $("#savemyprop").onclick = () => {
+    const text = $("#ptext").value.trim();
+    if (!text) { $("#propmsg").textContent = "Give it some words first."; return; }
+    createProp(text, $("#pkind").value, null);
+  };
+}
+
+async function createProp(text, kind, auto) {
+  try {
+    const row = await api.addProp(state.league.id, state.week, {
+      text, kind, auto, pays: kind === "couple" ? PAYS_COUPLE : PAYS_YESNO,
+    });
+    state.props.push(row);
+    $("#commishmodal").hidden = true;
+    render();
+    $("#banner").textContent = `"${text}" is up for ${weekLabel(state.week)}.`;
+  } catch (e) { $("#propmsg").textContent = "Couldn't add that one."; console.error(e); }
+}
+
+// Only the props a person has to rule on; the automatic ones never appear here.
+function openSettle() {
+  const week = state.week;
+  const manual = propsIn(week).filter(p => !p.auto);
+  $("#commish").innerHTML = `
+    <h2>Call the results — ${weekLabel(week)}</h2>
+    <p class="hint">Anyone can settle these. Your name goes on it, and it can be changed if you get it wrong.</p>
+    ${manual.map(p => {
+      const opts = p.kind === "couple"
+        ? activeCastPlusEliminated(week).map(c => ({ v: c.id, label: c.celeb }))
+        : [{ v: "yes", label: "Yes" }, { v: "no", label: "No" }];
+      return `<div class="prop" style="margin-bottom:10px">
+        <b>${esc(p.text)}</b>
+        <div class="propopts" style="margin-top:7px">
+          ${opts.map(o => `<button type="button" class="opt ${p.answer === o.v ? "on" : ""}"
+            data-settle="${esc(p.id)}" data-ans="${esc(o.v)}">${esc(o.label)}</button>`).join("")}
+        </div>
+        <p class="hint" style="margin:6px 0 0"><button type="button" class="linkbtn" data-killprop="${esc(p.id)}">remove this prop</button></p>
+      </div>`;
+    }).join("") || `<p class="hint">Nothing here needs a human — they all settle themselves.</p>`}
+    <button class="linkbtn" id="doneSettle" style="margin-top:10px">Done</button>`;
+  $("#commishmodal").hidden = false;
+
+  $("#commish").querySelectorAll("[data-settle]").forEach(b => b.onclick = async () => {
+    const prop = state.props.find(p => p.id === b.dataset.settle);
+    const prev = prop.answer;
+    prop.answer = b.dataset.ans; prop.settled_by = state.player.name;
+    openSettle();
+    try { await api.settleProp(prop.id, prop.answer, state.player.name); render(); }
+    catch (e) { prop.answer = prev; openSettle(); showError(e); }
+  });
+  $("#commish").querySelectorAll("[data-killprop]").forEach(b => b.onclick = async () => {
+    if (!confirm("Remove this prop and everyone's bets on it?")) return;
+    const id = b.dataset.killprop;
+    try {
+      await api.removeProp(id);
+      state.props = state.props.filter(p => p.id !== id);
+      state.propbets = state.propbets.filter(x => x.prop_id !== id);
+      openSettle(); render();
+    } catch (e) { showError(e); }
+  });
+  $("#doneSettle").onclick = () => { $("#commishmodal").hidden = true; render(); };
 }
 
 // ---------- commissioner: scores + salaries ----------
