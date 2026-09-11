@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mirrorball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "1.2";
+export const VERSION = "1.3";
 
 export const SEASON = 35;
 

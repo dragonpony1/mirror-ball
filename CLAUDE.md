@@ -45,3 +45,9 @@ explain them in plain language, no build tools, no frameworks.
   (there's a `mirrorball` entry in `.claude/launch.json`, port 8765).
 - Sentence case, plain words, no jargon in any UI text.
 - Times display in the viewer's local zone; only the lock is anchored to Eastern.
+
+## Before every push
+
+Bump BOTH `VERSION` in `js/config.js` AND the `?v=` on the stylesheet link in
+`index.html` — they must match. The version drives the in-app refresh nudge; the
+`?v=` is what actually gets a CSS change past a phone cache.

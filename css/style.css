@@ -184,7 +184,9 @@ h2:first-child { margin-top: 4px; }
 .capwrap {
   /* --headerH is measured and set by the app, so this tracks the real header */
   position: sticky; top: calc(var(--headerH, 164px) + 4px); z-index: 15;
-  background: linear-gradient(180deg, rgba(30,7,42,.97), rgba(30,7,42,.88));
+  /* fully opaque — it's a sticky bar, and anything scrolling under a
+     see-through one reads as a rendering glitch */
+  background: linear-gradient(180deg, #24072f, #1d0629);
   border: 1px solid var(--edge); border-radius: 14px; padding: 11px 13px; margin-bottom: 14px;
   box-shadow: 0 6px 22px rgba(0,0,0,.45);
 }
@@ -247,7 +249,21 @@ h2:first-child { margin-top: 4px; }
 .cnames .celeb { font-weight: 700; font-size: .97rem; line-height: 1.2; }
 .cnames .pro { font-size: .76rem; color: var(--dim); }
 .cnames .known { font-size: .72rem; color: var(--dim); opacity: .8; }
+/* form stays visible at every width — it's the whole basis of the decision */
+.cnames .form { font-size: .74rem; color: var(--teal); }
+.cnames .form b { color: var(--ink); }
 .cnames .gonehome { display: inline-block; }
+
+/* the "how this works" card, shown while a team is still empty */
+.coach {
+  background: linear-gradient(180deg, rgba(255,210,74,.12), rgba(255,45,149,.08));
+  border: 1px solid var(--edge); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px;
+}
+.coach > b { font-family: var(--display); font-size: 1.2rem; letter-spacing: .05em; color: var(--gold); }
+.coach ol { margin: 8px 0 6px; padding-left: 20px; }
+.coach li { font-size: .86rem; line-height: 1.45; margin: 6px 0; color: var(--ink); }
+.coach li b { color: var(--gold); }
+.coach .hint { display: block; margin: 0; font-style: italic; }
 
 .price {
   flex: 0 0 auto; font-family: var(--display); font-size: 1.15rem; letter-spacing: .03em;

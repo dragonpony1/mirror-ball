@@ -155,6 +155,31 @@ function seasonPoints(playerId) {
 
 const spentIn = week => lineupOf(state.player?.id, week).reduce((t, l) => t + l.price, 0);
 
+// What a couple has actually scored so far. This is the most useful thing we
+// can put on a card — it turns an abstract price into "is that worth it?",
+// and it teaches the scoring without anyone reading the rules.
+function formOf(coupleId, week) {
+  const past = [];
+  for (let w = 1; w < week; w++) {
+    const s = scoreFor(w, coupleId);
+    if (s != null) past.push(s);
+  }
+  if (!past.length) return null;
+  return {
+    last: past[past.length - 1],
+    avg: Math.round(past.reduce((a, b) => a + b, 0) / past.length),
+  };
+}
+
+// The line under a couple's names: their form once they've danced, otherwise
+// what they're known for.
+function formLine(c, week) {
+  const f = formOf(c.id, week);
+  return f
+    ? `<span class="form">Last time <b>${f.last}</b> · average <b>${f.avg}</b></span>`
+    : `<span class="known">${esc(c.known)}</span>`;
+}
+
 // ---------- nav ----------
 
 function bindNav() {
@@ -262,7 +287,20 @@ function renderLineup() {
               : `Up to ${money(Math.floor(left / slotsLeft))} a slot if you spread it evenly.`}</p>` : ""}
     </div>`;
 
-    html += `<p class="hint">Pick ${rosterSize()} couples for ${money(cap())} or less. You keep their judges' scores — a perfect 30 is 30 points. Locks ${esc(when)}.</p>`;
+    // An empty team is exactly when someone needs telling what this is. It
+    // disappears the moment they pick anyone, and comes back if they clear out.
+    if (!mine.length) {
+      html += `<div class="coach">
+        <b>How this works</b>
+        <ol>
+          <li>Pick <b>${rosterSize()} couples</b> below. Better dancers cost more, and ${money(cap())} isn't enough for ${rosterSize()} of the best — that's the game.</li>
+          <li>The judges score each couple <b>out of 30</b>. You get whatever they get. Your five added together is your week.</li>
+          <li>Then call <b>who goes home</b> for ${elimBonus()} bonus points. It's free and doesn't use your budget.</li>
+        </ol>
+        <span class="hint">A cheap couple who dances well is worth more to you than an expensive one who's safe.</span>
+      </div>`;
+    }
+    html += `<p class="hint">Locks ${esc(when)} — change your team as many times as you like until then.</p>`;
 
     // the slots
     html += `<div class="slots">`;
@@ -288,7 +326,8 @@ function renderLineup() {
         const on = ep?.couple_id === c.id;
         html += `<button class="couple ${on ? "picked" : ""}" data-elim="${esc(c.id)}">
           ${medallionHtml(c)}
-          <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span></span>
+          <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
+            ${formLine(c, week)}</span>
           <span class="price">${on ? "🏠" : ""}</span>
         </button>`;
       }
@@ -309,7 +348,7 @@ function renderLineup() {
         <span class="cnames">
           <span class="celeb">${esc(c.celeb)}</span>
           <span class="pro">with ${esc(c.pro)}</span>
-          <span class="known">${esc(c.known)}</span>
+          ${formLine(c, week)}
         </span>
         <span class="price">${money(price)}<small>${on ? "on your team" : tooPricey ? "over budget" : full ? "team full" : "tap to add"}</small></span>
       </button>`;
