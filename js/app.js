@@ -1,4 +1,4 @@
-import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS } from "./config.js";
+import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
 import * as api from "./api.js";
 
@@ -15,6 +15,7 @@ const state = {
   memberships: JSON.parse(localStorage.getItem("dwts-memberships") || "[]"),
   players: [], lineups: [], elimpicks: [],   // this league
   scores: [], prices: [], weeks: [],         // the show itself — shared by every league
+  winnerpicks: [],                           // the finale's "who takes the Mirrorball" call
   chat: [],
   showJoin: false,
   pendingInvite: null,
@@ -85,14 +86,16 @@ async function loadShow() {
 
 async function loadLeague() {
   if (!state.league) return;
-  const [players, lineups, elims] = await Promise.all([
+  const [players, lineups, elims, winners] = await Promise.all([
     api.listPlayers(state.league.id),
     api.listAllLineups(state.league.id),
     api.listAllElimPicks(state.league.id),
+    api.listWinnerPicks(state.league.id),
   ]);
   state.players = players || [];
   state.lineups = lineups || [];
   state.elimpicks = elims || [];
+  state.winnerpicks = winners || [];
   render();
   refreshChat();
   maybeCarryForward();
@@ -148,6 +151,11 @@ function trophyWeek() {
 const baseCap = () => state.league?.cap ?? DEFAULT_CAP;
 const baseRoster = () => state.league?.roster_size ?? DEFAULT_ROSTER;
 const elimBonus = () => state.league?.elim_bonus ?? DEFAULT_ELIM_BONUS;
+const winnerBonus = () => state.league?.winner_bonus ?? DEFAULT_WINNER_BONUS;
+
+// The app can't know which week is the last episode in advance — it only works
+// that out afterwards from who's left — so the commissioner ticks it.
+const isFinale = week => !!state.weeks.find(w => w.week === week)?.is_finale;
 
 // ---------- the shrinking ballroom ----------
 //
@@ -192,12 +200,25 @@ const elimPicksOf = (playerId, week) => state.elimpicks
   .sort((a, b) => (a.slot || 1) - (b.slot || 1));
 const elimPickAt = (playerId, week, slot) =>
   state.elimpicks.find(e => e.player_id === playerId && e.week === week && (e.slot || 1) === slot) || null;
+const winnerPickOf = playerId => state.winnerpicks.find(w => w.player_id === playerId) || null;
+
+// Who actually took the Mirrorball: the one couple never eliminated. Null until
+// the finale's results are in and everyone else has been marked out.
+function champion() {
+  const left = stillStanding();
+  return left.length === 1 ? left[0] : null;
+}
 
 function weekPoints(playerId, week) {
   let pts = 0;
   for (const l of lineupOf(playerId, week)) {
     const s = scoreFor(week, l.couple_id);
     if (s != null) pts += s;
+  }
+  // The last episode's winner call, paid on the finale week.
+  if (isFinale(week)) {
+    const champ = champion(), pick = winnerPickOf(playerId);
+    if (champ && pick && pick.couple_id === champ.id) pts += winnerBonus();
   }
   // Each correct call pays the bonus on its own.
   if (!noElimination(week)) {
@@ -269,6 +290,47 @@ async function maybeCarryForward() {
     buildWeekStrip();
     render();
   } catch (e) { console.error("carry-forward failed", e); }
+}
+
+// "in 3 days" / "in 2 hours" / "in 14 minutes" — the bit people actually read
+// off a deadline. Null once it's passed.
+function untilText(date) {
+  const ms = date.getTime() - Date.now();
+  if (ms <= 0) return null;
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `in ${mins} minute${mins === 1 ? "" : "s"}`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `in ${hrs} hour${hrs === 1 ? "" : "s"}`;
+  const days = Math.round(hrs / 24);
+  return `in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+// Everything this week still wants from you, as short noun phrases that read
+// in a list. Empty means you're done.
+function stillToDo(week) {
+  const me = state.player.id, todo = [];
+  if (lineupOf(me, week).length < rosterFor(week)) todo.push("your team");
+  if (isFinale(week)) {
+    if (!winnerPickOf(me)) todo.push("your winner call");
+  } else if (!noElimination(week)) {
+    const slots = elimSlots(week);
+    const missing = slots.filter(s => !elimPickAt(me, week, s.slot));
+    if (missing.length && missing.length === slots.length && slots.length > 1) {
+      todo.push("both elimination calls");
+    } else {
+      for (const s of missing) {
+        // "Tuesday — the men" -> "Tuesday's elimination"
+        todo.push(s.label ? `${s.label.split(" — ")[0]}'s elimination` : "who goes home");
+      }
+    }
+  }
+  return todo;
+}
+
+// "a", "a and b", "a, b and c"
+function listOut(items) {
+  if (items.length <= 1) return items[0] || "";
+  return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
 }
 
 // How many weeks this player has actually put a full team in. Used to decide
@@ -422,6 +484,15 @@ function renderLineup() {
         ? `${esc(champs[0].celeb)} and ${esc(champs[0].pro)} win the Mirrorball`
         : "That's the season"}</h2>
       <p class="hint">Nothing left to pick — the ballroom's empty. Here's how it finished.</p>
+      ${(() => {
+        const champ = champion();
+        if (!champ) return "";
+        const called = state.players.filter(p => winnerPickOf(p.id)?.couple_id === champ.id);
+        if (!state.winnerpicks.length) return "";
+        return `<p class="hint">🏆 ${called.length
+          ? `Called it: <b>${called.map(p => esc(p.name)).join(", ")}</b> — ${winnerBonus()} points each.`
+          : "Nobody called the winner."}</p>`;
+      })()}
       ${table.length ? `<table class="standings" style="text-align:left;margin-top:12px">
         ${table.map((r, i) => `<tr class="${r.p.id === state.player.id ? "me" : ""}">
           <td class="pos">${i === 0 ? "🥇" : i + 1}</td>
@@ -460,6 +531,20 @@ function renderLineup() {
               : `Up to ${money(Math.floor(left / slotsLeft))} a slot if you spread it evenly.`}</p>` : ""}
     </div>`;
 
+    // The "you're done" moment. Picking five couples and getting no
+    // acknowledgement leaves people wondering whether it saved at all, and the
+    // lock time is the one thing they'll want to check again later.
+    if (full && !overSize && !dead.length) {
+      const todo = stillToDo(week);
+      const until = untilText(lockAt(week));
+      html += `<div class="teamin ${todo.length ? "partial" : ""}">
+        <b>${todo.length ? `Team in — still need ${listOut(todo)}` : `✓ You're all set for ${weekLabel(week)}`}</b>
+        <span>${mine.length} couple${mine.length === 1 ? "" : "s"} · ${money(spent)} spent${
+          left > 0 ? ` · ${money(left)} unspent` : ""}</span>
+        <span class="lockline">🔒 Locks ${esc(when)}${until ? ` — ${until}` : ""}. Change it as often as you like until then.</span>
+      </div>`;
+    }
+
     // Once the ballroom empties the rules quietly change, so say it out loud.
     if (roster < baseRoster()) {
       html += `<p class="hint">Only ${activeCast(week).length} couples are left, so teams are down to <b>${roster}</b> this week and the cap is <b>${money(weekCap)}</b>. You always leave at least two on the bench.</p>`;
@@ -496,7 +581,9 @@ function renderLineup() {
         ${short > 0 ? `${short} slot${short === 1 ? "" : "s"} to fill — someone went home or priced out of your budget. ` : ""}Change anything you like before it locks.
       </div>`;
     }
-    html += `<p class="hint">Locks ${esc(when)} — change your team as many times as you like until then.</p>`;
+    if (!full || overSize || dead.length) {
+      html += `<p class="hint">🔒 Locks ${esc(when)} — change your team as many times as you like until then.</p>`;
+    }
 
     // The slots. Always draw every couple actually on the team, even if that's
     // more than this week allows — an over-size lineup you can't see is one you
@@ -517,9 +604,26 @@ function renderLineup() {
     }
     html += `</div>`;
 
-    // Who goes home. Week 1 wants two calls, one per premiere night, so each
-    // group says plainly what it wants and whether you've done it.
-    if (!noElimination(week)) {
+    // The last episode swaps the elimination call for the big one: everybody
+    // but the champion goes home, so "who goes home" is meaningless and "who
+    // wins" is the only question left.
+    if (isFinale(week)) {
+      const pick = winnerPickOf(state.player.id);
+      html += `<h2>🏆 Who takes the Mirrorball?</h2>
+        <p class="hint">Last episode. Call the winner for <b>${winnerBonus()} points</b> — free, doesn't touch your budget, and it's the last call of the season.${
+          pick ? "" : " Nobody's picked yet."}</p>
+        <div class="slots">`;
+      for (const c of activeCast(week)) {
+        const on = pick?.couple_id === c.id;
+        html += `<button class="couple ${on ? "picked" : ""}" data-winner="${esc(c.id)}">
+          ${medallionHtml(c)}
+          <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
+            ${formLine(c, week)}</span>
+          <span class="price">${on ? `🏆<small>your call</small>` : ""}</span>
+        </button>`;
+      }
+      html += `</div>`;
+    } else if (!noElimination(week)) {
       const slots = elimSlots(week);
       html += `<h2>🏠 Who goes home?</h2>`;
       html += slots.length > 1
@@ -583,6 +687,8 @@ function renderLineup() {
   $("#content").querySelectorAll("[data-drop]").forEach(b => b.onclick = () => dropCouple(b.dataset.drop));
   $("#content").querySelectorAll("[data-elim]").forEach(b =>
     b.onclick = () => pickElim(b.dataset.elim, Number(b.dataset.slot) || 1));
+  $("#content").querySelectorAll("[data-winner]").forEach(b =>
+    b.onclick = () => pickWinner(b.dataset.winner));
 }
 
 function medallionHtml(c) {
@@ -626,6 +732,21 @@ async function dropCouple(id) {
   render();
   try { await api.removeFromLineup(state.player.id, week, id); }
   catch (e) { if (removed) state.lineups.push(removed); render(); showError(e); }
+}
+
+async function pickWinner(id) {
+  const week = state.week;
+  if (locked(week)) return;
+  const prev = winnerPickOf(state.player.id);
+  state.winnerpicks = state.winnerpicks.filter(w => w.player_id !== state.player.id);
+  state.winnerpicks.push({ player_id: state.player.id, couple_id: id });
+  render();
+  try { await api.saveWinnerPick(state.player.id, state.league.id, id); }
+  catch (e) {
+    state.winnerpicks = state.winnerpicks.filter(w => w.player_id !== state.player.id);
+    if (prev) state.winnerpicks.push(prev);
+    render(); showError(e);
+  }
 }
 
 async function pickElim(id, slot = 1) {
@@ -679,6 +800,16 @@ function teamCardHtml(playerId, week, isMe) {
     </div>`;
   }
   html += `</div>`;
+  if (isFinale(week)) {
+    const pick = winnerPickOf(playerId), champ = champion();
+    if (pick) {
+      const c = byId(pick.couple_id);
+      html += `<p class="hint">🏆 Called ${esc(c.celeb)} for the Mirrorball — ${
+        !champ ? "still to be decided."
+        : pick.couple_id === champ.id ? `<b style="color:var(--good)">right, +${winnerBonus()}</b>.`
+        : `<span style="color:var(--bad)">it went to ${esc(champ.celeb)}</span>.`}</p>`;
+    }
+  }
   for (const ep of eps) {
     const c = byId(ep.couple_id);
     const right = elimsIn(week).includes(ep.couple_id);
@@ -804,6 +935,11 @@ function recapHtml(pid) {
       const c = byId(l.couple_id), s = scoreFor(week, l.couple_id);
       return `<li>${s == null ? "·" : s === 30 ? "🏆" : "✓"} ${esc(c.celeb)} — ${s == null ? "yet to dance" : `${s} pts`}</li>`;
     }).join("")}
+    ${isFinale(week) && winnerPickOf(pid) ? (() => {
+      const pick = winnerPickOf(pid), champ = champion();
+      return `<li>🏆 ${esc(byId(pick.couple_id).celeb)} for the win — ${
+        !champ ? "pending" : pick.couple_id === champ.id ? `right, +${winnerBonus()}` : "missed"}</li>`;
+    })() : ""}
     ${elimPicksOf(pid, week).map(ep => `<li>🏠 ${esc(byId(ep.couple_id).celeb)} — ${
       noElimination(week) ? "no elimination" :
       elimsIn(week).includes(ep.couple_id) ? `right, +${elimBonus()}` :
@@ -845,6 +981,11 @@ function renderRules() {
       <b>Your team carries over.</b> When a new week opens, last week's team is already there —
       minus anyone who went home, and minus anyone you can no longer afford. Change it as much
       as you like before it locks. You're never caught out with an empty team.
+    </p>
+    <p class="hint" style="font-size:.9rem">
+      <b>The last episode is different.</b> Instead of calling who goes home, you call
+      <b>who takes the Mirrorball</b> — worth ${winnerBonus()} points, free, on top of your
+      normal team that night. Everyone's watching anyway, and it's the last call of the season.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Points add up all season.</b> Every week's score goes on your total; nothing resets.
@@ -890,9 +1031,13 @@ function drawCommish() {
     <h2>${weekLabel(week)} scores</h2>
     <p class="hint">Type each couple's judges' total out of 30 — or out of 40 on a guest-judge week. Leave a box empty if they haven't danced. Tick whoever went home.</p>
     ${needCode ? `<label>Commissioner code<input id="ccode" autocomplete="off" placeholder="required for this league"></label>` : ""}
-    <label class="elim" style="display:flex;gap:6px;align-items:center;margin:12px 0">
+    <label class="elim" style="display:flex;gap:6px;align-items:center;margin:12px 0 6px">
       <input type="checkbox" id="noelim" ${wk.no_elimination ? "checked" : ""} style="width:auto">
       <span style="font-weight:600;color:var(--ink)">No elimination this week</span>
+    </label>
+    <label class="elim" style="display:flex;gap:6px;align-items:center;margin:0 0 12px">
+      <input type="checkbox" id="isfinale" ${wk.is_finale ? "checked" : ""} style="width:auto">
+      <span style="font-weight:600;color:var(--ink)">This is the last episode &mdash; swap the elimination call for &ldquo;who wins the Mirrorball&rdquo;</span>
     </label>
     <div id="scorerows">
       ${roster.map(c => {
@@ -952,7 +1097,11 @@ async function saveScores() {
   $("#commishmsg").textContent = "Saving…";
   try {
     await api.saveScores(rows);
-    await api.saveWeek(week, { no_elimination: $("#noelim").checked, results_in: rows.some(r => r.score != null) });
+    await api.saveWeek(week, {
+      no_elimination: $("#noelim").checked,
+      is_finale: $("#isfinale").checked,
+      results_in: rows.some(r => r.score != null),
+    });
     await loadShow();
     buildWeekStrip();
     $("#commishmodal").hidden = true;
@@ -1066,6 +1215,12 @@ function renderJoin() {
       <option value="15">15 points</option>
       <option value="0">No bonus</option>
     </select></label>
+    <label>Last episode — bonus for calling the winner<select name="winbonus">
+      <option value="50">50 points — enough to decide a close season</option>
+      <option value="100">100 points — a whole week's worth, big swing</option>
+      <option value="25">25 points — a nice touch, won't change much</option>
+      <option value="0">No winner bonus</option>
+    </select></label>
     <label>Commissioner code (optional)<input name="commish" autocomplete="off" placeholder="leave blank so anyone can enter scores"></label>
     <button type="submit">Start it</button>
   </form>`;
@@ -1118,6 +1273,7 @@ function renderJoin() {
         name: f.get("lname").trim(), passcode: code,
         icon: iconTrim(f.get("icon")) || "🪩",
         cap: +f.get("cap"), roster_size: +f.get("roster"), elim_bonus: +f.get("bonus"),
+        winner_bonus: +f.get("winbonus"),
         commish_code: (f.get("commish") || "").trim() || null,
       });
       await joinLeague(lg, you);
@@ -1188,7 +1344,9 @@ function rememberLeague(league) {
     id: league.id, name: league.name, passcode: league.passcode,
     icon: league.icon || "🪩", icon_url: league.icon_url || null,
     cap: league.cap ?? DEFAULT_CAP, roster_size: league.roster_size ?? DEFAULT_ROSTER,
-    elim_bonus: league.elim_bonus ?? DEFAULT_ELIM_BONUS, commish_code: league.commish_code || null,
+    elim_bonus: league.elim_bonus ?? DEFAULT_ELIM_BONUS,
+    winner_bonus: league.winner_bonus ?? DEFAULT_WINNER_BONUS,
+    commish_code: league.commish_code || null,
   };
   localStorage.setItem("dwts-league", JSON.stringify(state.league));
   state.memberships = state.memberships.map(m => m.league.id === league.id ? { ...m, league: state.league } : m);

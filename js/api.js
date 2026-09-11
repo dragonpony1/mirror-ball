@@ -21,7 +21,7 @@ export function isConfigured() {
   return !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.includes("YOUR-ANON");
 }
 
-const LEAGUE_COLS = "id,name,passcode,icon,icon_url,cap,roster_size,elim_bonus,commish_code";
+const LEAGUE_COLS = "id,name,passcode,icon,icon_url,cap,roster_size,elim_bonus,winner_bonus,commish_code";
 
 // ---------- leagues ----------
 
@@ -122,6 +122,24 @@ export function saveElimPick(playerId, leagueId, week, slot, coupleId) {
   });
 }
 
+// ---------- the finale's winner call ----------
+// One per player per season, so re-picking replaces rather than stacks.
+
+export function listWinnerPicks(leagueId) {
+  return rest(`dwts_winnerpicks?season=eq.${SEASON}&league_id=eq.${encodeURIComponent(leagueId)}&select=player_id,couple_id`);
+}
+
+export function saveWinnerPick(playerId, leagueId, coupleId) {
+  return rest("dwts_winnerpicks", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({
+      player_id: playerId, league_id: leagueId, season: SEASON,
+      couple_id: coupleId, updated_at: new Date().toISOString(),
+    }),
+  });
+}
+
 // ---------- judges' scores (shared by every league) ----------
 
 export function listScores() {
@@ -155,7 +173,7 @@ export function savePrices(rows) {
 // ---------- week settings ----------
 
 export function listWeeks() {
-  return rest(`dwts_weeks?season=eq.${SEASON}&select=week,lock_at,no_elimination,results_in`);
+  return rest(`dwts_weeks?season=eq.${SEASON}&select=week,lock_at,no_elimination,results_in,is_finale`);
 }
 
 export function saveWeek(week, fields) {

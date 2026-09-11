@@ -13,6 +13,7 @@ create table if not exists dwts_leagues (
   cap int not null default 50000,         -- salary cap for one week's lineup
   roster_size int not null default 5,     -- couples per lineup
   elim_bonus int not null default 10,     -- points for calling who goes home
+  winner_bonus int not null default 50,   -- last episode: points for calling the winner
   commish_code text,                      -- optional: required to type in judges' scores
   created_at timestamptz default now()
 );
@@ -80,13 +81,27 @@ create table if not exists dwts_prices (
 );
 
 -- Per-week settings the commissioner can adjust when ABC moves a show.
+-- is_finale has to be set by hand: the app can only work out which week was the
+-- last episode afterwards, from who's left, and the winner call has to be
+-- offered during it.
 create table if not exists dwts_weeks (
   season int not null,
   week int not null,
   lock_at timestamptz,                    -- null = the default Tuesday 8pm ET
   no_elimination boolean not null default false,
   results_in boolean not null default false,
+  is_finale boolean not null default false,
   primary key (season, week)
+);
+
+-- The last episode's "who takes the Mirrorball" call. One per player per season.
+create table if not exists dwts_winnerpicks (
+  player_id uuid not null references dwts_players(id) on delete cascade,
+  league_id uuid not null references dwts_leagues(id) on delete cascade,
+  season int not null,
+  couple_id text not null,
+  updated_at timestamptz default now(),
+  primary key (player_id, season)
 );
 
 create table if not exists dwts_messages (
@@ -108,6 +123,7 @@ alter table dwts_scores    enable row level security;
 alter table dwts_prices    enable row level security;
 alter table dwts_weeks     enable row level security;
 alter table dwts_messages  enable row level security;
+alter table dwts_winnerpicks enable row level security;
 
 create policy "anyone can find a league"   on dwts_leagues for select using (true);
 create policy "anyone can start a league"  on dwts_leagues for insert with check (true);
@@ -137,6 +153,10 @@ create policy "change prices" on dwts_prices for update using (true);
 create policy "read weeks"   on dwts_weeks for select using (true);
 create policy "set weeks"    on dwts_weeks for insert with check (true);
 create policy "change weeks" on dwts_weeks for update using (true);
+
+create policy "read winner picks"   on dwts_winnerpicks for select using (true);
+create policy "set winner picks"    on dwts_winnerpicks for insert with check (true);
+create policy "change winner picks" on dwts_winnerpicks for update using (true);
 
 create policy "read chat"  on dwts_messages for select using (true);
 create policy "write chat" on dwts_messages for insert with check (true);

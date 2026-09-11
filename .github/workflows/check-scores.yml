@@ -1,20 +1,36 @@
 name: Check the scores
 
-# Dancing with the Stars airs live Tuesday 8pm Eastern and Wikipedia has the
-# judges' scores within an hour or two. This runs the morning after, compares
-# what people typed in against the official results, and fixes any slips.
+# Anyone in the league types scores in live, as each couple dances. This chases
+# that with the official results and fixes slips as fast as Wikipedia has them.
 #
-# Thursday catches a two-night week (the premiere ran Tuesday AND Wednesday);
-# Friday is a backstop for a week Wikipedia was slow to fill in.
+# Times are UTC. The show is live Tuesday 8-10pm Eastern, which is Wednesday
+# 00:00-02:00 UTC, and Wikipedia usually has the scores within an hour or two
+# of the couple dancing.
 #
+#  - LIVE runs, every 20 minutes from the moment the show starts until midday:
+#    additive only (never un-eliminates anyone the page hasn't caught up on,
+#    never blanks a score someone already typed) and silent, because nobody
+#    wants a chat message every twenty minutes.
+#  - The MORNING run is the authoritative one: it corrects in both directions
+#    and posts a single summary of what it changed into every league's chat.
+#
+# Thursday is covered too — the premiere ran Tuesday AND Wednesday nights.
 # No secrets: the script reads the same public Supabase key the app ships with.
 
 on:
   schedule:
-    - cron: "0 13 * * 3,4,5"   # 13:00 UTC = 7am Mountain, 9am Eastern
-  workflow_dispatch:            # and a "Run workflow" button, any time
+    - cron: "*/20 0-11 * * 3"   # Wed 00:00-11:59 UTC — Tuesday's show, live
+    - cron: "*/20 0-11 * * 4"   # Thu, same — for two-night weeks
+    - cron: "0 13 * * 3,4"      # the authoritative pass, 7am Mountain
+    - cron: "0 13 * * 5"        # Friday backstop if Wikipedia was slow
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Quiet additive pass (no chat post)"
+        type: boolean
+        default: false
 
-# Runs are cheap and idempotent, but never let two overlap and fight.
+# Runs overlap by design at 13:00; never let two fight over the same rows.
 concurrency:
   group: check-scores
   cancel-in-progress: false
@@ -27,5 +43,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      # The 13:00 schedule is the authoritative pass; everything else is live.
+      - name: Decide which kind of pass this is
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            [ "${{ inputs.live }}" = "true" ] && echo "flag=--live" >> $GITHUB_OUTPUT || echo "flag=" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 13 * * 3,4" ] || [ "${{ github.event.schedule }}" = "0 13 * * 5" ]; then
+            echo "flag=" >> $GITHUB_OUTPUT
+          else
+            echo "flag=--live" >> $GITHUB_OUTPUT
+          fi
+
       - name: Compare with the official scores
-        run: node scripts/audit-scores.mjs
+        run: node scripts/audit-scores.mjs ${{ steps.mode.outputs.flag }}

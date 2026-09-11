@@ -38,6 +38,12 @@ const has = f => args.includes(f);
 const val = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 
 const DRY = has("--dry");
+// Live mode runs every few minutes WHILE the show is on, so it must only ever
+// add what Wikipedia has confirmed — never take anything away. Mid-show the
+// Result column is still blank, so an authoritative pass would cheerfully
+// un-eliminate someone a viewer had already correctly marked as going home.
+// It also keeps quiet: nobody needs a chat message every twenty minutes.
+const LIVE = has("--live");
 const ONLY_WEEK = val("--week") ? Number(val("--week")) : null;
 const PAGE = val("--page", `Dancing_with_the_Stars_(American_TV_series)_season_${SEASON}`);
 
@@ -161,6 +167,23 @@ const saveScores = rows => rest("dwts_scores", {
 
 // ---------- the audit ----------
 
+// What a row should become, given what's in the database (`cur`, possibly
+// undefined) and what the page says (`truth`).
+//
+// Authoritative passes take the page at its word in both directions. LIVE
+// passes run every few minutes while the show is still on, when the page is
+// half-written, so they only ever ADD: an elimination someone already marked
+// stays marked, and a score someone already typed is never blanked just
+// because Wikipedia hasn't caught up. Exported so it can be tested — this is
+// the subtlest rule in the project and the easiest to break by accident.
+export function reconcile(cur, truth, live) {
+  if (!live) return { score: truth.score, eliminated: truth.eliminated };
+  return {
+    score: truth.score == null ? (cur?.score ?? null) : truth.score,
+    eliminated: !!cur?.eliminated || truth.eliminated,
+  };
+}
+
 const nameOf = id => CAST.find(c => c.id === id)?.celeb || id;
 
 async function main() {
@@ -195,19 +218,21 @@ async function main() {
     for (const [coupleId, truth] of byCouple) {
       checked++;
       const cur = seen.get(`${week}:${coupleId}`);
-      const scoreOff = !cur || cur.score !== truth.score;
-      const elimOff = !cur || !!cur.eliminated !== truth.eliminated;
+      const { score: nextScore, eliminated: nextElim } = reconcile(cur, truth, LIVE);
+
+      const scoreOff = !cur || cur.score !== nextScore;
+      const elimOff = !cur || !!cur.eliminated !== nextElim;
       if (!scoreOff && !elimOff) continue;
 
       changes.push({
         week, coupleId, name: nameOf(coupleId),
         was: cur ? { score: cur.score, eliminated: !!cur.eliminated } : null,
-        now: { score: truth.score, eliminated: truth.eliminated },
+        now: { score: nextScore, eliminated: nextElim },
         by: cur?.entered_by || null,
       });
       writes.push({
-        week, couple_id: coupleId, score: truth.score,
-        eliminated: truth.eliminated, entered_by: "Wikipedia check",
+        week, couple_id: coupleId, score: nextScore,
+        eliminated: nextElim, entered_by: "Wikipedia check",
       });
     }
   }
@@ -231,8 +256,13 @@ async function main() {
   console.log(`\nWrote ${writes.length} correction(s).`);
 
   // Tell the leagues what moved. Standings changing with no explanation is
-  // how a fantasy league starts an argument.
+  // how a fantasy league starts an argument — but not every twenty minutes
+  // while the show is still on the air.
   const notice = summarise(changes);
+  if (LIVE) {
+    console.log(`(live run — fixed quietly, no chat post) ${notice}`);
+    return { changes, checked, notice };
+  }
   for (const lg of (await listLeagues()) || []) {
     await postNotice(lg.id, notice).catch(e => console.warn(`! couldn't post to ${lg.name}: ${e.message}`));
   }
@@ -259,7 +289,9 @@ function writeStepSummary(text) {
   try { appendFileSync(f, text + "\n"); } catch {}
 }
 
-main()
+// Imported by the tests; only actually audit when run directly.
+const RUN_DIRECTLY = process.argv[1] && process.argv[1].endsWith("audit-scores.mjs");
+if (RUN_DIRECTLY) main()
   .then(({ changes = [], checked = 0, notice }) => {
     writeStepSummary(changes.length
       ? `### 🪩 Fixed ${changes.length} score(s)\n\n${notice}\n\n` +

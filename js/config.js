@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mirrorball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "1.8";
+export const VERSION = "1.9";
 
 export const SEASON = 35;
 
@@ -16,3 +16,6 @@ export const SEASON = 35;
 export const DEFAULT_CAP = 50000;   // salary cap per week
 export const DEFAULT_ROSTER = 5;    // couples in a lineup
 export const DEFAULT_ELIM_BONUS = 10; // points for calling who goes home
+// The last episode only: call who takes the Mirrorball. Worth about half a
+// week's play, so it decides a close season without erasing a big lead.
+export const DEFAULT_WINNER_BONUS = 50;
