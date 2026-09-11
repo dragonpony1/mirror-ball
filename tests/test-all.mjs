@@ -83,5 +83,19 @@ is("a tie on top scorer pays anyone who named a tied couple",
 is("a good props week is a swing, not a replacement",
    4 * PAYS_YESNO < (5 * 24) / 2, true);
 
+console.log("\npremiere: did the women out-score the men?");
+// Mirrors autoWinners('womenwin'). Must stay unsettled until BOTH nights are in.
+const womenWin = (rows) => {
+  const avg = n => { const xs = rows.filter(r => r.night === n && r.s != null);
+    return xs.length ? xs.reduce((t, r) => t + r.s, 0) / xs.length : null; };
+  const w = avg(2), m = avg(1);
+  return (w == null || m == null) ? null : (w > m ? "yes" : "no");
+};
+is("women ahead -> yes", womenWin([{night:1,s:18},{night:2,s:22}]), "yes");
+is("men ahead -> no",    womenWin([{night:1,s:24},{night:2,s:20}]), "no");
+is("dead level -> no",   womenWin([{night:1,s:20},{night:2,s:20}]), "no");
+is("only Tuesday scored: NOT settled yet", womenWin([{night:1,s:18}]), null);
+is("only Wednesday scored: NOT settled yet", womenWin([{night:2,s:18}]), null);
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

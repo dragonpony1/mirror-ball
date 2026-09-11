@@ -250,6 +250,18 @@ function autoWinners(prop) {
     const best = Math.max(...scored.map(x => x.s));
     return new Set(scored.filter(x => x.s === best).map(x => x.id));
   }
+  // Premiere-only: the men danced Tuesday and the women Wednesday, so which
+  // night scored better is a real question. Stays unsettled until BOTH nights
+  // are in, because a half-scored week would answer it wrongly.
+  if (prop.auto === "womenwin") {
+    const avg = n => {
+      const xs = scored.filter(x => byId(x.id)?.night === n);
+      return xs.length ? xs.reduce((t, x) => t + x.s, 0) / xs.length : null;
+    };
+    const women = avg(2), men = avg(1);
+    if (women == null || men == null) return null;
+    return new Set([women > men ? "yes" : "no"]);
+  }
   if (prop.auto === "lowgoes") {
     const worst = Math.min(...scored.map(x => x.s));
     const lowest = scored.filter(x => x.s === worst).map(x => x.id);
@@ -276,6 +288,7 @@ function propPoints(playerId, prop) {
 // nobody to rule on them at all.
 const STARTER_PROPS = [
   { text: "Will anyone score a perfect 30?",            kind: "yesno",  auto: "perfect30" },
+  { text: "Will the women out-score the men?",          kind: "yesno",  auto: "womenwin" },
   { text: "Who scores highest tonight?",                kind: "couple", auto: "top" },
   { text: "Will the lowest scorer go home?",            kind: "yesno",  auto: "lowgoes" },
   { text: "Will Carrie Ann mention a lift?",            kind: "yesno",  auto: null },
