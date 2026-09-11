@@ -578,8 +578,25 @@ function renderRules() {
       <b>Season winner</b> is whoever has the most points after the finale.
     </p>
   </div>
+  <h2>An example week</h2>
+  <div class="join">
+    <p class="hint" style="font-size:.9rem">Two people, same ${money(cap())}, very different teams. Say the judges score the night like this:</p>
+    <table class="standings" style="margin-bottom:10px">
+      <tr><th>You picked</th><th style="text-align:right">Cost</th><th style="text-align:right">Judges</th></tr>
+      <tr><td>Jenna Dewan</td><td style="text-align:right">$14,500</td><td class="pts">26</td></tr>
+      <tr><td>Harry Shum Jr.</td><td style="text-align:right">$14,000</td><td class="pts">25</td></tr>
+      <tr><td>Sarah Jane Nader</td><td style="text-align:right">$8,000</td><td class="pts">17</td></tr>
+      <tr><td>Conner Leavitt</td><td style="text-align:right">$7,500</td><td class="pts">16</td></tr>
+      <tr><td>Guillermo Rodriguez</td><td style="text-align:right">$6,000</td><td class="pts">18</td></tr>
+      <tr><td><b>Total</b></td><td style="text-align:right"><b>$50,000</b></td><td class="pts"><b>102</b></td></tr>
+    </table>
+    <p class="hint" style="font-size:.9rem">Your brother spread his money around instead — Julia Stiles, Amber Glenn, Jackson Olson, Connor Wood, Giada — and they scored 21, 22, 20, 15, 14. <b>That's 92.</b></p>
+    <p class="hint" style="font-size:.9rem">You win the week by 10 — because Guillermo scored 18 for only $6,000, and those savings bought you Jenna Dewan.</p>
+    <p class="hint" style="font-size:.9rem">Unless your brother called the elimination and you didn't. Then it's 102 to 102.</p>
+  </div>
+
   <h2>Who types in the scores?</h2>
-  <p class="hint">Anyone in the league. After the show, go to <b>Ballroom → Enter scores</b> and type each couple's total out of 30 and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo.</p>`;
+  <p class="hint">Anyone in the league. After the show, go to <b>Ballroom → Enter scores</b> and type each couple's total out of 30 and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo. A check runs the next morning against the official scores and quietly fixes any slips.</p>`;
 }
 
 // ---------- commissioner: scores + salaries ----------
@@ -598,7 +615,7 @@ function drawCommish() {
 
   $("#commish").innerHTML = `
     <h2>${weekLabel(week)} scores</h2>
-    <p class="hint">Type each couple's judges' total out of 30. Leave a box empty if they haven't danced. Tick whoever went home.</p>
+    <p class="hint">Type each couple's judges' total out of 30 — or out of 40 on a guest-judge week. Leave a box empty if they haven't danced. Tick whoever went home.</p>
     ${needCode ? `<label>Commissioner code<input id="ccode" autocomplete="off" placeholder="required for this league"></label>` : ""}
     <label class="elim" style="display:flex;gap:6px;align-items:center;margin:12px 0">
       <input type="checkbox" id="noelim" ${wk.no_elimination ? "checked" : ""} style="width:auto">
@@ -610,7 +627,7 @@ function drawCommish() {
         return `<div class="scorerow">
           ${medallionHtml(c)}
           <span class="cnames" style="flex:1"><span class="celeb">${esc(c.celeb)}</span><span class="pro">${esc(c.pro)}</span></span>
-          <input type="number" min="0" max="30" step="1" data-score="${esc(c.id)}" value="${r.score ?? ""}" placeholder="—" inputmode="numeric">
+          <input type="number" min="0" max="40" step="1" data-score="${esc(c.id)}" value="${r.score ?? ""}" placeholder="—" inputmode="numeric">
           <label class="elim"><input type="checkbox" data-elimbox="${esc(c.id)}" ${r.eliminated ? "checked" : ""}> home</label>
         </div>`;
       }).join("")}
@@ -654,7 +671,7 @@ async function saveScores() {
     const raw = inp.value.trim();
     const elim = box.querySelector(`[data-elimbox="${CSS.escape(id)}"]`)?.checked || false;
     let score = raw === "" ? null : Math.round(Number(raw));
-    if (score != null && (!Number.isFinite(score) || score < 0 || score > 30)) score = null;
+    if (score != null && (!Number.isFinite(score) || score < 0 || score > 40)) score = null;
     if (raw === "" && !elim) return; // nothing to say about this couple yet
     rows.push({ week, couple_id: id, score, eliminated: elim, entered_by: state.player.name });
   });
