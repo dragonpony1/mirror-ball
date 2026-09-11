@@ -1191,6 +1191,15 @@ function renderBallroom() {
     </div>
     <input type="file" accept="image/*" id="facefile" hidden>`;
 
+  // CC BY and CC BY-SA both require the photographer to be credited, so the
+  // ones that came from Wikimedia say who took them. Uploads by the league
+  // just show who added them.
+  const credited = CAST.map(c => ({ c, f: faceOf(c.id) })).filter(x => x.f?.added_by);
+  if (credited.length) {
+    html += `<p class="hint" style="font-size:.72rem;margin-top:10px">Photo credits: ${
+      credited.map(x => `${esc(x.c.celeb.split(" ")[0])} — ${esc(x.f.added_by)}`).join(" · ")}</p>`;
+  }
+
   // who's already out
   const out = CAST.filter(c => isOut(c.id, week));
   if (out.length) {
