@@ -4,7 +4,8 @@ import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const money = n => "$" + Number(n).toLocaleString("en-US");
+// Minus sign goes outside the dollar sign — "$-19,000" reads like a typo.
+const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n)).toLocaleString("en-US");
 
 const state = {
   view: "lineup",
@@ -127,9 +128,35 @@ function currentWeek() {
   return TOTAL_WEEKS;
 }
 
-const cap = () => state.league?.cap ?? DEFAULT_CAP;
-const rosterSize = () => state.league?.roster_size ?? DEFAULT_ROSTER;
+const baseCap = () => state.league?.cap ?? DEFAULT_CAP;
+const baseRoster = () => state.league?.roster_size ?? DEFAULT_ROSTER;
 const elimBonus = () => state.league?.elim_bonus ?? DEFAULT_ELIM_BONUS;
+
+// ---------- the shrinking ballroom ----------
+//
+// A fixed team of 5 stops being a game once the field gets small: with 5
+// couples left everyone is forced into the identical team, and with 4 you
+// can't field a legal one at all. So the team shrinks with the ballroom —
+// you always leave at least two couples unpicked, down to a floor of two.
+const BENCH = 2;
+
+function rosterFor(week) {
+  const alive = activeCast(week).length;
+  if (!alive) return baseRoster();                 // nothing has aired yet
+  return Math.max(2, Math.min(baseRoster(), alive - BENCH));
+}
+
+// The cap shrinks with the team, or it stops biting — $50,000 buys the three
+// best dancers outright. Never let it fall below what the cheapest legal team
+// costs, so a week can't become impossible after a round of repricing.
+function capFor(week) {
+  const roster = rosterFor(week);
+  const perSlot = baseCap() / baseRoster();
+  const scaled = roster === baseRoster() ? baseCap() : Math.round(perSlot * roster / 500) * 500;
+  const cheapest = activeCast(week).map(c => priceIn(c.id, week)).sort((a, b) => a - b)
+    .slice(0, roster).reduce((t, p) => t + p, 0);
+  return Math.max(scaled, cheapest);
+}
 
 // ---------- scoring ----------
 
@@ -255,10 +282,17 @@ function render() {
 function renderLineup() {
   const week = state.week, isLocked = locked(week);
   const mine = lineupOf(state.player.id, week);
+  const roster = rosterFor(week), weekCap = capFor(week);
   const spent = mine.reduce((t, l) => t + l.price, 0);
-  const left = cap() - spent;
-  const full = mine.length >= rosterSize();
+  const left = weekCap - spent;
+  const full = mine.length >= roster;
   const ep = elimPickOf(state.player.id, week);
+
+  // Eliminations happen after you've already built next week's team, so a saved
+  // lineup can wake up holding couples who went home, or be bigger than the
+  // week now allows. Say so plainly rather than quietly dropping anyone.
+  const dead = mine.filter(l => isOut(l.couple_id, week));
+  const overSize = Math.max(0, mine.length - roster);
 
   const when = lockAt(week).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -270,22 +304,30 @@ function renderLineup() {
   } else {
     // What's still affordable, and whether the team can even be finished —
     // it's easy to spend big early and strand yourself with slots you can't fill.
-    const slotsLeft = rosterSize() - mine.length;
+    const slotsLeft = roster - mine.length;
     const available = activeCast(week).filter(c => !mine.some(l => l.couple_id === c.id))
       .map(c => priceIn(c.id, week)).sort((a, b) => a - b);
     const cheapestFill = available.slice(0, slotsLeft).reduce((t, p) => t + p, 0);
     const stuck = slotsLeft > 0 && (available.length < slotsLeft || cheapestFill > left);
 
-    html += `<div class="capwrap ${spent > cap() ? "over" : full ? "full" : ""}">
+    html += `<div class="capwrap ${spent > weekCap ? "over" : full && !overSize ? "full" : ""}">
       <div class="capline">
         <b>${money(left)}</b>
-        <span class="right">left to spend<br>${mine.length} of ${rosterSize()} couples</span>
+        <span class="right">left to spend<br>${mine.length} of ${roster} couple${roster === 1 ? "" : "s"}</span>
       </div>
-      <div class="capbar"><span style="width:${Math.min(100, (spent / cap()) * 100).toFixed(1)}%"></span></div>
-      ${slotsLeft > 0 ? `<p class="hint" style="margin:7px 0 0">${
+      <div class="capbar"><span style="width:${Math.min(100, (spent / weekCap) * 100).toFixed(1)}%"></span></div>
+      ${dead.length ? `<p class="hint" style="margin:7px 0 0"><b style="color:var(--bad)">${
+        dead.map(l => esc(byId(l.couple_id).celeb)).join(" and ")} went home — drop ${dead.length === 1 ? "them" : "both"} and pick again.</b></p>` : ""}
+      ${overSize ? `<p class="hint" style="margin:7px 0 0"><b style="color:var(--bad)">Only ${roster} couples this week — drop ${overSize} more.</b></p>` : ""}
+      ${!dead.length && !overSize && slotsLeft > 0 ? `<p class="hint" style="margin:7px 0 0">${
         stuck ? `<b style="color:var(--bad)">You can't fill the rest of your team at these prices — drop someone.</b>`
               : `Up to ${money(Math.floor(left / slotsLeft))} a slot if you spread it evenly.`}</p>` : ""}
     </div>`;
+
+    // Once the ballroom empties the rules quietly change, so say it out loud.
+    if (roster < baseRoster()) {
+      html += `<p class="hint">Only ${activeCast(week).length} couples are left, so teams are down to <b>${roster}</b> this week and the cap is <b>${money(weekCap)}</b>. You always leave at least two on the bench.</p>`;
+    }
 
     // An empty team is exactly when someone needs telling what this is. It
     // disappears the moment they pick anyone, and comes back if they clear out.
@@ -293,8 +335,8 @@ function renderLineup() {
       html += `<div class="coach">
         <b>How this works</b>
         <ol>
-          <li>Pick <b>${rosterSize()} couples</b> below. Better dancers cost more, and ${money(cap())} isn't enough for ${rosterSize()} of the best — that's the game.</li>
-          <li>The judges score each couple <b>out of 30</b>. You get whatever they get. Your five added together is your week.</li>
+          <li>Pick <b>${roster} couples</b> below. Better dancers cost more, and ${money(weekCap)} isn't enough for ${roster} of the best — that's the game.</li>
+          <li>The judges score each couple <b>out of 30</b>. You get whatever they get. Your ${roster} added together is your week.</li>
           <li>Then call <b>who goes home</b> for ${elimBonus()} bonus points. It's free and doesn't use your budget.</li>
         </ol>
         <span class="hint">A cheap couple who dances well is worth more to you than an expensive one who's safe.</span>
@@ -302,15 +344,19 @@ function renderLineup() {
     }
     html += `<p class="hint">Locks ${esc(when)} — change your team as many times as you like until then.</p>`;
 
-    // the slots
+    // The slots. Always draw every couple actually on the team, even if that's
+    // more than this week allows — an over-size lineup you can't see is one you
+    // can't fix.
     html += `<div class="slots">`;
-    for (let i = 0; i < rosterSize(); i++) {
+    for (let i = 0; i < Math.max(roster, mine.length); i++) {
       const l = mine[i];
       if (!l) { html += `<div class="slot">Empty slot — pick a couple below</div>`; continue; }
       const c = byId(l.couple_id);
-      html += `<div class="slot filled">
+      const gone = isOut(c.id, week);
+      html += `<div class="slot filled ${gone || i >= roster ? "bad" : ""}">
         ${medallionHtml(c)}
-        <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span></span>
+        <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
+          ${gone ? `<span class="gonehome">went home</span>` : i >= roster ? `<span class="gonehome">over the limit</span>` : ""}</span>
         <span class="price">${money(l.price)}</span>
         <button class="xbtn" data-drop="${esc(c.id)}" aria-label="Drop ${esc(c.celeb)}">✕</button>
       </div>`;
@@ -336,9 +382,12 @@ function renderLineup() {
 
     // the cast
     html += `<h2>The ballroom — week ${week}</h2>`;
-    const roster = activeCast(week).slice().sort((a, b) => priceIn(b.id, week) - priceIn(a.id, week));
+    // Named `board`, not `roster` — a second `const roster` in this block would
+    // shadow the team size declared above and put every earlier use of it in a
+    // temporal dead zone, which is exactly the bug this replaced.
+    const board = activeCast(week).slice().sort((a, b) => priceIn(b.id, week) - priceIn(a.id, week));
     html += `<div class="slots">`;
-    for (const c of roster) {
+    for (const c of board) {
       const price = priceIn(c.id, week);
       const on = mine.some(l => l.couple_id === c.id);
       const tooPricey = !on && price > left;
@@ -379,17 +428,17 @@ async function addCouple(id) {
   if (locked(week)) return;
   const mine = lineupOf(state.player.id, week);
   if (mine.some(l => l.couple_id === id)) return;
-  if (mine.length >= rosterSize()) { $("#banner").textContent = `Your team is full — drop someone first.`; return; }
+  if (mine.length >= rosterFor(week)) { $("#banner").textContent = `Your team is full — drop someone first.`; return; }
   const price = priceIn(id, week);
   const spent = mine.reduce((t, l) => t + l.price, 0);
-  if (spent + price > cap()) { $("#banner").textContent = `That puts you ${money(spent + price - cap())} over the cap.`; return; }
+  if (spent + price > capFor(week)) { $("#banner").textContent = `That puts you ${money(spent + price - capFor(week))} over the cap.`; return; }
 
   // Optimistic: the card lights up straight away, then the write goes out.
   state.lineups.push({ player_id: state.player.id, week, couple_id: id, price });
   render();
   try {
     await api.addToLineup(state.player.id, state.league.id, week, id, price);
-    if (lineupOf(state.player.id, week).length === rosterSize()) { confetti(); $("#banner").textContent = "Team's set. Good luck. 🪩"; }
+    if (lineupOf(state.player.id, week).length === rosterFor(week)) { confetti(); $("#banner").textContent = "Team's set. Good luck. 🪩"; }
   } catch (e) {
     state.lineups = state.lineups.filter(l => !(l.player_id === state.player.id && l.week === week && l.couple_id === id));
     render(); showError(e);
@@ -525,7 +574,7 @@ function renderLeague() {
     ${lg.icon_url ? `<img src="${esc(lg.icon_url)}" alt="" style="width:92px;height:92px;object-fit:cover;border-radius:50%;border:2px solid var(--gold)">`
       : `<div style="font-size:3rem">${esc(lg.icon || "🪩")}</div>`}
     <h2 style="margin:8px 0 2px">${esc(lg.name)}</h2>
-    <p class="hint">${state.players.length} ${state.players.length === 1 ? "player" : "players"} · ${money(cap())} cap · ${rosterSize()} couples a week</p>
+    <p class="hint">${state.players.length} ${state.players.length === 1 ? "player" : "players"} · ${money(baseCap())} cap · ${baseRoster()} couples a week</p>
     <label class="linkbtn" style="display:inline-block;cursor:pointer">Change league photo<input type="file" accept="image/*" id="pic" hidden></label>
   </div>`;
 
@@ -596,10 +645,10 @@ function renderRules() {
   <h2>How it works</h2>
   <div class="join">
     <p class="hint" style="font-size:.9rem">
-      <b>Build a team of ${rosterSize()} couples</b> every week for ${money(cap())} or less. The good dancers cost more.
+      <b>Build a team of ${baseRoster()} couples</b> every week for ${money(baseCap())} or less. The good dancers cost more.
     </p>
     <p class="hint" style="font-size:.9rem">
-      <b>You score what the judges score.</b> Each couple is marked out of 30 by the three judges. Add up your ${rosterSize()} couples — that's your week.
+      <b>You score what the judges score.</b> Each couple is marked out of 30 by the three judges. Add up your ${baseRoster()} couples — that's your week.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Call the elimination for ${elimBonus()} bonus points.</b> One free pick a week: who's going home. It costs nothing and it's worth about a whole dance.
@@ -614,12 +663,18 @@ function renderRules() {
       <b>Once a couple is eliminated</b> they're off the board — you can't pick them again.
     </p>
     <p class="hint" style="font-size:.9rem">
+      <b>Teams shrink as the ballroom empties.</b> You always leave at least two couples
+      unpicked, so there's always a real choice. With 7 or more still dancing that's a team
+      of ${baseRoster()}; at 6 it's 4, at 5 it's 3, and from 4 down it's 2. The cap comes
+      down with it, about ${money(Math.round(baseCap() / baseRoster()))} a slot.
+    </p>
+    <p class="hint" style="font-size:.9rem">
       <b>Season winner</b> is whoever has the most points after the finale.
     </p>
   </div>
   <h2>An example week</h2>
   <div class="join">
-    <p class="hint" style="font-size:.9rem">Two people, same ${money(cap())}, very different teams. Say the judges score the night like this:</p>
+    <p class="hint" style="font-size:.9rem">Two people, same ${money(baseCap())}, very different teams. Say the judges score the night like this:</p>
     <table class="standings" style="margin-bottom:10px">
       <tr><th>You picked</th><th style="text-align:right">Cost</th><th style="text-align:right">Judges</th></tr>
       <tr><td>Jenna Dewan</td><td style="text-align:right">$14,500</td><td class="pts">26</td></tr>

@@ -215,6 +215,8 @@ h2:first-child { margin-top: 4px; }
   color: var(--dim); font-size: .86rem;
 }
 .slot.filled { border-style: solid; border-color: var(--edge); background: var(--card); color: var(--ink); }
+/* a couple who went home, or one slot too many for this week */
+.slot.filled.bad { border-color: var(--bad); background: rgba(255,84,112,.14); }
 
 /* ---------- couple cards ---------- */
 
