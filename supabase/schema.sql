@@ -104,6 +104,17 @@ create table if not exists dwts_winnerpicks (
   primary key (player_id, season)
 );
 
+-- A picture for each couple, added by whoever fancies it. Shared by every
+-- league like the scores are, and anyone can replace one.
+create table if not exists dwts_faces (
+  season int not null,
+  couple_id text not null,
+  url text not null,
+  added_by text,
+  updated_at timestamptz default now(),
+  primary key (season, couple_id)
+);
+
 create table if not exists dwts_messages (
   id uuid primary key default gen_random_uuid(),
   league_id uuid not null references dwts_leagues(id) on delete cascade,
@@ -124,6 +135,7 @@ alter table dwts_prices    enable row level security;
 alter table dwts_weeks     enable row level security;
 alter table dwts_messages  enable row level security;
 alter table dwts_winnerpicks enable row level security;
+alter table dwts_faces       enable row level security;
 
 create policy "anyone can find a league"   on dwts_leagues for select using (true);
 create policy "anyone can start a league"  on dwts_leagues for insert with check (true);
@@ -157,6 +169,11 @@ create policy "change weeks" on dwts_weeks for update using (true);
 create policy "read winner picks"   on dwts_winnerpicks for select using (true);
 create policy "set winner picks"    on dwts_winnerpicks for insert with check (true);
 create policy "change winner picks" on dwts_winnerpicks for update using (true);
+
+create policy "read faces"   on dwts_faces for select using (true);
+create policy "add faces"    on dwts_faces for insert with check (true);
+create policy "change faces" on dwts_faces for update using (true);
+create policy "drop faces"   on dwts_faces for delete using (true);
 
 create policy "read chat"  on dwts_messages for select using (true);
 create policy "write chat" on dwts_messages for insert with check (true);

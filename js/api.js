@@ -232,6 +232,38 @@ export function saveWeek(week, fields) {
   });
 }
 
+// ---------- couple photos ----------
+// Shared by every league, like the scores. Anyone can add or replace one.
+
+export function listFaces() {
+  return rest(`dwts_faces?season=eq.${SEASON}&select=couple_id,url,added_by`);
+}
+
+export function saveFace(coupleId, url, by) {
+  return rest("dwts_faces", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ season: SEASON, couple_id: coupleId, url, added_by: by, updated_at: new Date().toISOString() }),
+  });
+}
+
+export function clearFace(coupleId) {
+  return rest(`dwts_faces?season=eq.${SEASON}&couple_id=eq.${encodeURIComponent(coupleId)}`, { method: "DELETE" });
+}
+
+export async function uploadCouplePic(coupleId, blob) {
+  // Fresh filename every time; overwriting is blocked by the storage rules and
+  // unique names stop a phone showing a stale cached picture.
+  const name = `face-${SEASON}-${encodeURIComponent(coupleId)}-${Date.now()}.jpg`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/league-pics/${name}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "image/jpeg" },
+    body: blob,
+  });
+  if (!res.ok) throw new Error(`Storage ${res.status}: ${await res.text()}`);
+  return `${SUPABASE_URL}/storage/v1/object/public/league-pics/${name}`;
+}
+
 // ---------- league photo ----------
 
 export async function uploadLeaguePic(leagueId, blob) {

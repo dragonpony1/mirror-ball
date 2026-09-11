@@ -384,6 +384,24 @@ h2:first-child { margin-top: 4px; }
   background: var(--bad); color: #fff; margin-top: 3px;
 }
 
+/* ---------- couple photos ---------- */
+
+.medallion.has-face {
+  background-size: cover; background-position: center;
+  box-shadow: inset 0 0 0 2px rgba(255,210,74,.55), 0 0 10px rgba(0,0,0,.45);
+}
+.medallion.has-face::after { content: none; }   /* no gloss over a real face */
+
+.faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 10px; }
+.facecell {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: none; border: 0; cursor: pointer; padding: 4px 2px; font: inherit; color: var(--ink);
+}
+.facecell .medallion { width: 54px; height: 54px; font-size: 1.25rem; }
+.facecell span { font-size: .72rem; font-weight: 600; text-align: center; line-height: 1.1; }
+.facecell small { font-size: .64rem; color: var(--gold); }
+.facecell:hover .medallion { box-shadow: 0 0 0 2px var(--gold); }
+
 /* ---------- Mirror Balls and prop bets ---------- */
 
 .balls {

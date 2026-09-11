@@ -18,6 +18,7 @@ const state = {
   scores: [], prices: [], weeks: [],         // the show itself — shared by every league
   winnerpicks: [],                           // the finale's "who takes the Mirrorball" call
   props: [], propbets: [],                   // prop bets and what people staked on them
+  faces: [],                                 // a picture for each couple, added by whoever likes
   chat: [],
   showJoin: false,
   pendingInvite: null,
@@ -98,6 +99,7 @@ async function loadLeague() {
     api.listProps(state.league.id),
     api.listPropBets(state.league.id),
   ]);
+  api.listFaces().then(f => { state.faces = f || []; render(); }).catch(() => {});
   state.players = players || [];
   state.lineups = lineups || [];
   state.elimpicks = elims || [];
@@ -858,8 +860,36 @@ function renderLineup() {
     b.onclick = () => pickWinner(b.dataset.winner));
 }
 
+const faceOf = id => state.faces.find(f => f.couple_id === id) || null;
+
 function medallionHtml(c) {
+  const face = faceOf(c.id);
+  if (face) {
+    return `<span class="medallion has-face" style="background-image:url('${esc(face.url)}')" role="img" aria-label="${esc(c.celeb)}"></span>`;
+  }
   return `<span class="medallion" style="background:linear-gradient(145deg,${c.color},${shade(c.color, -35)})">${esc(initials(c))}</span>`;
+}
+
+// Square-crop from the middle, then shrink. Avatars are round, so a portrait
+// photo scaled to fit would be mostly ceiling.
+function squareShrink(file, size = 320) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = size;
+      const cx = cv.getContext("2d");
+      cx.imageSmoothingQuality = "high";
+      cx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      // JPEG, never PNG — a photo as lossless PNG is ~10x bigger for nothing.
+      cv.toBlob(b => b ? res(b) : rej(new Error("resize failed")), "image/jpeg", 0.85);
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = rej;
+    img.src = URL.createObjectURL(file);
+  });
 }
 
 // darken/lighten a #rrggbb by an amount, for the medallion's gradient
@@ -1147,6 +1177,20 @@ function renderBallroom() {
     if (stamp) html += `<p class="hint">Scores entered by ${esc(stamp.entered_by)} · ${new Date(stamp.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. Anyone can fix a typo.</p>`;
   }
 
+  // Photos. Deliberately its own section rather than making every medallion a
+  // file picker — those live inside buttons that already do something.
+  const withFace = CAST.filter(c => faceOf(c.id)).length;
+  html += `<h2>Photos</h2>
+    <p class="hint">${withFace} of ${CAST.length} have a picture. Anyone can add or change one — use whatever you like, it's shared with the whole league.</p>
+    <div class="faces">
+      ${CAST.map(c => `<button type="button" class="facecell" data-face="${esc(c.id)}" title="${esc(c.celeb)}">
+        ${medallionHtml(c)}
+        <span>${esc(c.celeb.split(" ")[0])}</span>
+        <small>${faceOf(c.id) ? "change" : "+ add"}</small>
+      </button>`).join("")}
+    </div>
+    <input type="file" accept="image/*" id="facefile" hidden>`;
+
   // who's already out
   const out = CAST.filter(c => isOut(c.id, week));
   if (out.length) {
@@ -1155,11 +1199,34 @@ function renderBallroom() {
 
   $("#content").innerHTML = html;
   $("#openCommish").onclick = () => openCommish(week);
+  $("#content").querySelectorAll("[data-face]").forEach(b => b.onclick = () => {
+    state.facingCouple = b.dataset.face;
+    $("#facefile").value = "";
+    $("#facefile").click();
+  });
+  $("#facefile").onchange = uploadFace;
 }
 
 // Everyone who danced in that week: still in, plus whoever was eliminated that night.
 function activeCastPlusEliminated(week) {
   return CAST.filter(c => !isOut(c.id, week));
+}
+
+async function uploadFace(e) {
+  const file = e.target.files?.[0];
+  const id = state.facingCouple;
+  if (!file || !id) return;
+  const who = byId(id);
+  $("#banner").textContent = `Adding a picture for ${who?.celeb}…`;
+  try {
+    const blob = await squareShrink(file);
+    const url = await api.uploadCouplePic(id, blob);
+    await api.saveFace(id, url, state.player.name);
+    state.faces = state.faces.filter(f => f.couple_id !== id);
+    state.faces.push({ couple_id: id, url, added_by: state.player.name });
+    $("#banner").textContent = `${who?.celeb} has a face now. Everyone sees it.`;
+    render();
+  } catch (err) { showError(err); }
 }
 
 // ---------- league: standings + chat ----------
@@ -1283,6 +1350,11 @@ function renderRules() {
       <b>Your team carries over.</b> When a new week opens, last week's team is already there —
       minus anyone who went home, and minus anyone you can no longer afford. Change it as much
       as you like before it locks. You're never caught out with an empty team.
+    </p>
+    <p class="hint" style="font-size:.9rem">
+      <b>Put faces on the cards.</b> Ballroom → Photos. Tap anyone and add a picture from your
+      phone — it's shared with the whole league, and anyone can change one. Cropped square and
+      shrunk automatically, so it costs almost nothing to load.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Money you don't spend isn't wasted.</b> Every ${money(DOLLARS_PER_BALL)} of cap left over
