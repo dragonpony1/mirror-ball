@@ -106,15 +106,17 @@ export function removeFromLineup(playerId, week, coupleId) {
 // ---------- elimination picks ----------
 
 export function listAllElimPicks(leagueId) {
-  return rest(`dwts_elimpicks?season=eq.${SEASON}&league_id=eq.${encodeURIComponent(leagueId)}&select=player_id,week,couple_id`);
+  return rest(`dwts_elimpicks?season=eq.${SEASON}&league_id=eq.${encodeURIComponent(leagueId)}&select=player_id,week,slot,couple_id`);
 }
 
-export function saveElimPick(playerId, leagueId, week, coupleId) {
+// `slot` is part of the key, so re-picking the same slot replaces it rather
+// than piling up a second pick.
+export function saveElimPick(playerId, leagueId, week, slot, coupleId) {
   return rest("dwts_elimpicks", {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates" },
     body: JSON.stringify({
-      player_id: playerId, league_id: leagueId, season: SEASON, week,
+      player_id: playerId, league_id: leagueId, season: SEASON, week, slot,
       couple_id: coupleId, updated_at: new Date().toISOString(),
     }),
   });

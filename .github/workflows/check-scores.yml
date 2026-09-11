@@ -1,0 +1,31 @@
+name: Check the scores
+
+# Dancing with the Stars airs live Tuesday 8pm Eastern and Wikipedia has the
+# judges' scores within an hour or two. This runs the morning after, compares
+# what people typed in against the official results, and fixes any slips.
+#
+# Thursday catches a two-night week (the premiere ran Tuesday AND Wednesday);
+# Friday is a backstop for a week Wikipedia was slow to fill in.
+#
+# No secrets: the script reads the same public Supabase key the app ships with.
+
+on:
+  schedule:
+    - cron: "0 13 * * 3,4,5"   # 13:00 UTC = 7am Mountain, 9am Eastern
+  workflow_dispatch:            # and a "Run workflow" button, any time
+
+# Runs are cheap and idempotent, but never let two overlap and fight.
+concurrency:
+  group: check-scores
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Compare with the official scores
+        run: node scripts/audit-scores.mjs

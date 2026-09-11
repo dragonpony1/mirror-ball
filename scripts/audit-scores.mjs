@@ -12,7 +12,7 @@
 // Exit code is 0 when everything matched or was fixed, 1 when it couldn't read
 // the page at all — so a scheduled run can tell "nothing to do" from "broken".
 
-import { readFileSync } from "node:fs";
+import { readFileSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -144,6 +144,15 @@ async function rest(path, opts = {}) {
 
 const listScores = () => rest(`dwts_scores?season=eq.${SEASON}&select=week,couple_id,score,eliminated,entered_by`);
 
+const listLeagues = () => rest("dwts_leagues?select=id,name");
+
+// Posted with no player_id, which is how the app knows to render it as the
+// score check rather than as one of the players.
+const postNotice = (leagueId, body) => rest("dwts_messages", {
+  method: "POST",
+  body: JSON.stringify({ league_id: leagueId, player_id: null, body: body.slice(0, 300) }),
+});
+
 const saveScores = rows => rest("dwts_scores", {
   method: "POST",
   headers: { Prefer: "resolution=merge-duplicates" },
@@ -220,7 +229,45 @@ async function main() {
   if (DRY) { console.log("\n--dry: nothing written."); return { changes, checked }; }
   await saveScores(writes);
   console.log(`\nWrote ${writes.length} correction(s).`);
-  return { changes, checked };
+
+  // Tell the leagues what moved. Standings changing with no explanation is
+  // how a fantasy league starts an argument.
+  const notice = summarise(changes);
+  for (const lg of (await listLeagues()) || []) {
+    await postNotice(lg.id, notice).catch(e => console.warn(`! couldn't post to ${lg.name}: ${e.message}`));
+  }
+  console.log(`Posted to league chat: ${notice}`);
+  return { changes, checked, notice };
 }
 
-main().catch(e => { console.error("Audit failed:", e.message); process.exit(1); });
+// One short line, whatever the size of the correction.
+function summarise(changes) {
+  const weeks = [...new Set(changes.map(c => c.week))].sort((a, b) => a - b);
+  const bits = changes.slice(0, 4).map(c =>
+    c.was == null ? `added ${c.name} ${c.now.score}`
+    : c.was.score !== c.now.score ? `${c.name} ${c.was.score}→${c.now.score}`
+    : `${c.name} ${c.now.eliminated ? "went home" : "is still in"}`);
+  const more = changes.length > bits.length ? ` and ${changes.length - bits.length} more` : "";
+  return `Checked week ${weeks.join(", ")} against the official scores — ${bits.join(", ")}${more}. Standings updated.`;
+}
+
+// When this runs in GitHub Actions, put the outcome on the run's summary page
+// so it's readable without digging through logs.
+function writeStepSummary(text) {
+  const f = process.env.GITHUB_STEP_SUMMARY;
+  if (!f) return;
+  try { appendFileSync(f, text + "\n"); } catch {}
+}
+
+main()
+  .then(({ changes = [], checked = 0, notice }) => {
+    writeStepSummary(changes.length
+      ? `### 🪩 Fixed ${changes.length} score(s)\n\n${notice}\n\n` +
+        changes.map(c => `- Week ${c.week}: **${c.name}** ${c.was ? `${c.was.score}${c.was.eliminated ? " (home)" : ""}` : "missing"} → ${c.now.score}${c.now.eliminated ? " (home)" : ""}${c.by ? ` _(was entered by ${c.by})_` : ""}`).join("\n")
+      : `### 🪩 All good\n\nChecked ${checked} score(s) — everything matches the official results.`);
+  })
+  .catch(e => {
+    console.error("Audit failed:", e.message);
+    writeStepSummary(`### ⚠️ Score check failed\n\n\`${e.message}\``);
+    process.exit(1);
+  });

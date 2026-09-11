@@ -1,5 +1,5 @@
 import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS } from "./config.js";
-import { CAST, byId, initials, TOTAL_WEEKS, weekLabel } from "./cast.js";
+import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -161,7 +161,13 @@ function capFor(week) {
 // ---------- scoring ----------
 
 const lineupOf = (playerId, week) => state.lineups.filter(l => l.player_id === playerId && l.week === week);
-const elimPickOf = (playerId, week) => state.elimpicks.find(e => e.player_id === playerId && e.week === week) || null;
+// A week can take more than one elimination call — the premiere took two, one
+// per night — so this is always a list, ordered by slot.
+const elimPicksOf = (playerId, week) => state.elimpicks
+  .filter(e => e.player_id === playerId && e.week === week)
+  .sort((a, b) => (a.slot || 1) - (b.slot || 1));
+const elimPickAt = (playerId, week, slot) =>
+  state.elimpicks.find(e => e.player_id === playerId && e.week === week && (e.slot || 1) === slot) || null;
 
 function weekPoints(playerId, week) {
   let pts = 0;
@@ -169,8 +175,13 @@ function weekPoints(playerId, week) {
     const s = scoreFor(week, l.couple_id);
     if (s != null) pts += s;
   }
-  const ep = elimPickOf(playerId, week);
-  if (ep && !noElimination(week) && elimsIn(week).includes(ep.couple_id)) pts += elimBonus();
+  // Each correct call pays the bonus on its own.
+  if (!noElimination(week)) {
+    const gone = elimsIn(week);
+    for (const ep of elimPicksOf(playerId, week)) {
+      if (gone.includes(ep.couple_id)) pts += elimBonus();
+    }
+  }
   return pts;
 }
 
@@ -286,7 +297,6 @@ function renderLineup() {
   const spent = mine.reduce((t, l) => t + l.price, 0);
   const left = weekCap - spent;
   const full = mine.length >= roster;
-  const ep = elimPickOf(state.player.id, week);
 
   // Eliminations happen after you've already built next week's team, so a saved
   // lineup can wake up holding couples who went home, or be bigger than the
@@ -337,7 +347,9 @@ function renderLineup() {
         <ol>
           <li>Pick <b>${roster} couples</b> below. Better dancers cost more, and ${money(weekCap)} isn't enough for ${roster} of the best — that's the game.</li>
           <li>The judges score each couple <b>out of 30</b>. You get whatever they get. Your ${roster} added together is your week.</li>
-          <li>Then call <b>who goes home</b> for ${elimBonus()} bonus points. It's free and doesn't use your budget.</li>
+          <li>Then call <b>who goes home</b>${elimSlots(week).length > 1
+            ? ` — <b>two calls</b> premiere week, one for Tuesday's men and one for Wednesday's women. ${elimBonus()} points each`
+            : ` for ${elimBonus()} bonus points`}. It's free and doesn't use your budget.</li>
         </ol>
         <span class="hint">A cheap couple who dances well is worth more to you than an expensive one who's safe.</span>
       </div>`;
@@ -363,21 +375,38 @@ function renderLineup() {
     }
     html += `</div>`;
 
-    // who goes home
+    // Who goes home. Week 1 wants two calls, one per premiere night, so each
+    // group says plainly what it wants and whether you've done it.
     if (!noElimination(week)) {
-      html += `<h2>🏠 Who goes home?</h2>
-        <p class="hint">Call the elimination and take ${elimBonus()} bonus points. One pick, and it doesn't cost a cent.</p>
-        <div class="slots" id="elimlist">`;
-      for (const c of activeCast(week)) {
-        const on = ep?.couple_id === c.id;
-        html += `<button class="couple ${on ? "picked" : ""}" data-elim="${esc(c.id)}">
-          ${medallionHtml(c)}
-          <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
-            ${formLine(c, week)}</span>
-          <span class="price">${on ? "🏠" : ""}</span>
-        </button>`;
+      const slots = elimSlots(week);
+      html += `<h2>🏠 Who goes home?</h2>`;
+      html += slots.length > 1
+        ? `<p class="hint">Two couples go home premiere week — <b>one Tuesday, one Wednesday</b>. Make both calls. Each is worth ${elimBonus()} points on its own, and neither costs a cent of your budget.</p>`
+        : `<p class="hint">Call the elimination and take ${elimBonus()} bonus points. One pick, and it doesn't cost a cent.</p>`;
+
+      for (const s of slots) {
+        const picked = elimPickAt(state.player.id, week, s.slot);
+        const pool = activeCast(week).filter(c => s.night == null || c.night === s.night);
+        if (!pool.length) continue;
+
+        if (s.label) {
+          html += `<h3 class="elimhead">${esc(s.label)}
+            <span class="${picked ? "ok" : "todo"}">${picked
+              ? `✓ you picked ${esc(byId(picked.couple_id).celeb)}`
+              : "pick one"}</span></h3>`;
+        }
+        html += `<div class="slots">`;
+        for (const c of pool) {
+          const on = picked?.couple_id === c.id;
+          html += `<button class="couple ${on ? "picked" : ""}" data-elim="${esc(c.id)}" data-slot="${s.slot}">
+            ${medallionHtml(c)}
+            <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
+              ${formLine(c, week)}</span>
+            <span class="price">${on ? `🏠<small>your pick</small>` : ""}</span>
+          </button>`;
+        }
+        html += `</div>`;
       }
-      html += `</div>`;
     }
 
     // the cast
@@ -409,7 +438,8 @@ function renderLineup() {
 
   $("#content").querySelectorAll("[data-add]").forEach(b => b.onclick = () => addCouple(b.dataset.add));
   $("#content").querySelectorAll("[data-drop]").forEach(b => b.onclick = () => dropCouple(b.dataset.drop));
-  $("#content").querySelectorAll("[data-elim]").forEach(b => b.onclick = () => pickElim(b.dataset.elim));
+  $("#content").querySelectorAll("[data-elim]").forEach(b =>
+    b.onclick = () => pickElim(b.dataset.elim, Number(b.dataset.slot) || 1));
 }
 
 function medallionHtml(c) {
@@ -455,16 +485,17 @@ async function dropCouple(id) {
   catch (e) { if (removed) state.lineups.push(removed); render(); showError(e); }
 }
 
-async function pickElim(id) {
+async function pickElim(id, slot = 1) {
   const week = state.week;
   if (locked(week)) return;
-  const prev = elimPickOf(state.player.id, week);
-  state.elimpicks = state.elimpicks.filter(e => !(e.player_id === state.player.id && e.week === week));
-  state.elimpicks.push({ player_id: state.player.id, week, couple_id: id });
+  const prev = elimPickAt(state.player.id, week, slot);
+  const mineAt = e => e.player_id === state.player.id && e.week === week && (e.slot || 1) === slot;
+  state.elimpicks = state.elimpicks.filter(e => !mineAt(e));
+  state.elimpicks.push({ player_id: state.player.id, week, slot, couple_id: id });
   render();
-  try { await api.saveElimPick(state.player.id, state.league.id, week, id); }
+  try { await api.saveElimPick(state.player.id, state.league.id, week, slot, id); }
   catch (e) {
-    state.elimpicks = state.elimpicks.filter(e2 => !(e2.player_id === state.player.id && e2.week === week));
+    state.elimpicks = state.elimpicks.filter(e2 => !mineAt(e2));
     if (prev) state.elimpicks.push(prev);
     render(); showError(e);
   }
@@ -488,8 +519,7 @@ function teamCardHtml(playerId, week, isMe) {
   const p = state.players.find(x => x.id === playerId);
   const mine = lineupOf(playerId, week);
   if (!mine.length) return isMe ? `<p class="empty">You didn't get a lineup in for ${weekLabel(week)}.</p>` : "";
-  const ep = elimPickOf(playerId, week);
-  const gotElim = ep && !noElimination(week) && elimsIn(week).includes(ep.couple_id);
+  const eps = elimPicksOf(playerId, week);
 
   let html = `<h2>${isMe ? "Your team" : esc(p?.name || "Player")} · ${weekPoints(playerId, week)} pts</h2><div class="slots">`;
   for (const l of mine) {
@@ -506,11 +536,12 @@ function teamCardHtml(playerId, week, isMe) {
     </div>`;
   }
   html += `</div>`;
-  if (ep) {
+  for (const ep of eps) {
     const c = byId(ep.couple_id);
+    const right = elimsIn(week).includes(ep.couple_id);
     html += `<p class="hint">🏠 Called ${esc(c.celeb)} to go home — ${
       noElimination(week) ? "no elimination this week, so no bonus for anyone."
-      : gotElim ? `<b style="color:var(--good)">right, +${elimBonus()}</b>.`
+      : right ? `<b style="color:var(--good)">right, +${elimBonus()}</b>.`
       : weekHasResults(week) ? `<span style="color:var(--bad)">not this time</span>.` : "still to come."}</p>`;
   }
   return html;
@@ -625,16 +656,15 @@ function recapHtml(pid) {
   if (!mine.length) return `<div class="recap">${esc(p?.name)} didn't enter a lineup for ${weekLabel(week)}.</div>`;
   if (!locked(week) && pid !== state.player.id) return `<div class="recap">${esc(p?.name)}'s lineup is hidden until ${weekLabel(week)} locks.</div>`;
 
-  const ep = elimPickOf(pid, week);
   return `<div class="recap"><b>${esc(p?.name)} — ${weekLabel(week)}</b><ul>
     ${mine.map(l => {
       const c = byId(l.couple_id), s = scoreFor(week, l.couple_id);
       return `<li>${s == null ? "·" : s === 30 ? "🏆" : "✓"} ${esc(c.celeb)} — ${s == null ? "yet to dance" : `${s} pts`}</li>`;
     }).join("")}
-    ${ep ? `<li>🏠 ${esc(byId(ep.couple_id).celeb)} — ${
+    ${elimPicksOf(pid, week).map(ep => `<li>🏠 ${esc(byId(ep.couple_id).celeb)} — ${
       noElimination(week) ? "no elimination" :
       elimsIn(week).includes(ep.couple_id) ? `right, +${elimBonus()}` :
-      weekHasResults(week) ? "missed" : "pending"}</li>` : ""}
+      weekHasResults(week) ? "missed" : "pending"}</li>`).join("")}
   </ul><b>${weekPoints(pid, week)} points</b></div>`;
 }
 
@@ -1081,9 +1111,12 @@ function drawChat() {
   const log = $("#chatlog");
   if (!log) return;
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  log.innerHTML = state.chat.map(m => `<div class="msg"><b>${esc(m.dwts_players?.name || "?")}</b> ${esc(m.body)}
-    <span class="at">${new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div>`).join("")
-    || `<p class="hint">Nothing yet. Start the trash talk.</p>`;
+  // A message with no player is from the score checker, not a person.
+  log.innerHTML = state.chat.map(m => {
+    const who = m.dwts_players?.name;
+    return `<div class="msg ${who ? "" : "system"}"><b>${who ? esc(who) : "🪩 Score check"}</b> ${esc(m.body)}
+      <span class="at">${new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div>`;
+  }).join("") || `<p class="hint">Nothing yet. Start the trash talk.</p>`;
   if (atBottom) log.scrollTop = log.scrollHeight;
 }
 
@@ -1101,7 +1134,7 @@ function updateTicker() {
   const last = state.chat[state.chat.length - 1];
   const t = $("#ticker");
   if (!last || state.view === "league") { t.hidden = true; return; }
-  $("#tickertext").textContent = `💬 ${last.dwts_players?.name || "?"}: ${last.body}`;
+  $("#tickertext").textContent = `💬 ${last.dwts_players?.name || "🪩 Score check"}: ${last.body}`;
   t.hidden = false;
 }
 

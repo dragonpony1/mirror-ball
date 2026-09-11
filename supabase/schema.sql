@@ -42,15 +42,18 @@ create table if not exists dwts_lineups (
   primary key (player_id, season, week, couple_id)
 );
 
--- Who you think goes home. One per player per week.
+-- Who you think goes home. Usually one call a week, but the two-night premiere
+-- sent a couple home each night and later rounds run double eliminations, so
+-- `slot` says which call this is. Normal weeks only ever use slot 1.
 create table if not exists dwts_elimpicks (
   player_id uuid not null references dwts_players(id) on delete cascade,
   league_id uuid not null references dwts_leagues(id) on delete cascade,
   season int not null,
   week int not null,
+  slot int not null default 1,
   couple_id text not null,
   updated_at timestamptz default now(),
-  primary key (player_id, season, week)
+  primary key (player_id, season, week, slot)
 );
 
 -- The judges' scores. These are facts about the show, so they are SHARED by
@@ -89,7 +92,8 @@ create table if not exists dwts_weeks (
 create table if not exists dwts_messages (
   id uuid primary key default gen_random_uuid(),
   league_id uuid not null references dwts_leagues(id) on delete cascade,
-  player_id uuid not null references dwts_players(id) on delete cascade,
+  -- null player_id = posted by the automatic score check, not by a person
+  player_id uuid references dwts_players(id) on delete cascade,
   body text not null check (char_length(body) between 1 and 300),
   created_at timestamptz not null default now()
 );

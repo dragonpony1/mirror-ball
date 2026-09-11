@@ -300,6 +300,19 @@ h2:first-child { margin-top: 4px; }
 .scorepill small { display: block; font-family: var(--body); font-size: .62rem; color: var(--dim); letter-spacing: 0; }
 .scorepill.perfect { color: #fff; text-shadow: 0 0 14px var(--gold), 0 0 26px var(--pink); }
 
+/* "Tuesday — the men" etc, with a live "pick one" / "you picked X" status */
+.elimhead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; margin: 16px 0 8px;
+  font-family: var(--display); font-size: 1.15rem; letter-spacing: .05em; color: var(--ink);
+}
+.elimhead span {
+  font-family: var(--body); font-size: .74rem; font-weight: 700; letter-spacing: .03em;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+}
+.elimhead .todo { background: rgba(255,45,149,.2); color: #FFB8DC; border: 1px solid rgba(255,45,149,.5); }
+.elimhead .ok { background: rgba(74,222,128,.16); color: var(--good); border: 1px solid rgba(74,222,128,.45); }
+
 .gonehome {
   display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .06em;
   text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
@@ -385,6 +398,10 @@ select option { background: #2a0a3d; color: var(--ink); }
 .msg { font-size: .88rem; line-height: 1.4; }
 .msg b { color: var(--gold); }
 .msg .at { font-size: .68rem; color: var(--dim); margin-left: 5px; }
+/* the automatic score check, so it never reads as one of the players */
+.msg.system { background: rgba(0,229,208,.09); border-left: 2px solid var(--teal);
+  padding: 5px 8px; border-radius: 0 8px 8px 0; }
+.msg.system b { color: var(--teal); }
 .chatform { display: flex; gap: 7px; margin-top: 9px; }
 .chatform input { margin: 0; }
 .chatform button { flex: 0 0 auto; padding: 0 16px; border-radius: 10px; border: 1px solid #fff6; cursor: pointer;
