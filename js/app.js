@@ -1125,6 +1125,17 @@ function renderLeague() {
     <label class="linkbtn" style="display:inline-block;cursor:pointer">Change league photo<input type="file" accept="image/*" id="pic" hidden></label>
   </div>`;
 
+  // Who's behind. Only shown when it matters — chasing people to refresh is a
+  // real job when eight of you need the same rules on a Tuesday night.
+  const behind = state.players.filter(p => (p.app_version || "") !== VERSION);
+  if (behind.length) {
+    html += `<div class="notopen" style="margin-top:14px">
+      <b>${behind.length} ${behind.length === 1 ? "person is" : "people are"} on an old version</b>
+      <span>${behind.map(p => `${esc(p.name)} <i>(${p.app_version ? "v" + esc(p.app_version) : "not opened yet"})</i>`).join(" · ")}</span>
+      <span style="margin-top:6px">They'll get a glittery “tap to refresh” bar next time they open it. Everyone else is on v${esc(VERSION)}.</span>
+    </div>`;
+  }
+
   html += `<h2>Standings</h2>${standingsHtml()}`;
   if (state.recapPlayer) html += recapHtml(state.recapPlayer);
 
@@ -1656,6 +1667,10 @@ async function renameMe() {
 async function joinLeague(league, name) {
   const player = await api.getOrCreatePlayer(name, league.id);
   state.player = player;
+  // Stamp them straight away. Without this, someone who joins and picks a team
+  // in one sitting shows as "never opened" until their second visit.
+  const standalone = matchMedia("(display-mode: standalone)").matches || !!navigator.standalone;
+  api.touchPlayer(player.id, standalone).catch(() => {});
   localStorage.setItem("dwts-player", JSON.stringify(state.player));
   state.memberships = state.memberships.filter(m => m.league.id !== league.id);
   state.memberships.push({ league, player });

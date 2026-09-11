@@ -52,6 +52,14 @@ explain them in plain language, no build tools, no frameworks.
 score reconcile rule and the shrinking-roster ladder. The workflow runs it too, so a
 broken rule fails the scheduled check instead of quietly writing bad scores.
 
+## The update banner always lags one version
+
+Whatever the "a newer version is ready" bar looks like, it is drawn by the code
+the phone is ALREADY running — never by the version it is advertising. So a
+change to that banner is invisible on the release that introduces it and only
+shows up on the NEXT one. Don't chase it as a bug; Matt hit exactly this when
+v3.0's glitter didn't appear on the v2.2 -> v3.0 notice.
+
 ## Before every push
 
 Bump BOTH `VERSION` in `js/config.js` AND the `?v=` on the stylesheet link in
