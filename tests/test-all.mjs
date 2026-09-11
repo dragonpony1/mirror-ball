@@ -57,16 +57,24 @@ is("2 couples left is still playable", playable(2), true);
 // Mirror Ball economy. It lives in app.js behind a DOM, so the rules are
 // restated here — change DOLLARS_PER_BALL or a payout in app.js and you must
 // change it here too, and this will tell you what it did to the numbers.
-console.log("\nMirror Balls — you only bank from a week you fielded a FULL team");
+console.log("\nMirror Balls — capped so sitting out cannot out-earn playing");
 const DOLLARS_PER_BALL = 1000, PAYS_YESNO = 10, PAYS_COUPLE = 25;
-const ballsFor = (cap, spent, picked, roster) =>
-  (picked < roster ? 0 : Math.floor(Math.max(0, cap - spent) / DOLLARS_PER_BALL));
+// The most you can bank in a week is whatever is left after the CHEAPEST legal
+// team. That is what stops "pick nobody, bank fifty" WITHOUT demanding a full
+// team — and requiring a full team was worse, because dropping a couple to swap
+// them blew up your balance mid-edit.
+const maxBalls = (cap, cheapestTeam) => Math.floor(Math.max(0, cap - cheapestTeam) / DOLLARS_PER_BALL);
+const ballsFor = (cap, spent, picked, cheapestTeam) =>
+  picked === 0 ? 0 : Math.min(Math.floor(Math.max(0, cap - spent) / DOLLARS_PER_BALL), maxBalls(cap, cheapestTeam));
 
-is("full team, $14,000 unspent -> 14 balls", ballsFor(50000, 36000, 5, 5), 14);
-is("full team, spent the lot -> 0 balls",    ballsFor(50000, 50000, 5, 5), 0);
-is("NO team banks nothing (else picking nobody would bank 50)", ballsFor(50000, 0, 0, 5), 0);
-is("half a team banks nothing either",       ballsFor(50000, 20000, 3, 5), 0);
-is("a shrunken late-season week scales too", ballsFor(20000, 14000, 2, 2), 6);
+is("cheapest legal team banks the max, 14",       ballsFor(50000, 36000, 5, 36000), 14);
+is("spent the lot, banks nothing",                ballsFor(50000, 50000, 5, 36000), 0);
+is("picked nobody banks nothing at all",          ballsFor(50000, 0, 0, 36000), 0);
+is("picking ONE cheap couple cannot beat the cap", ballsFor(50000, 6000, 1, 36000), 14);
+is("mid-price team banks the difference",         ballsFor(50000, 44000, 5, 36000), 6);
+is("a shrunken late-season week scales too",      ballsFor(20000, 14000, 2, 12000), 6);
+is("dropping a couple raises the balance, never lowers it",
+   ballsFor(50000, 30000, 4, 36000) >= ballsFor(50000, 36000, 5, 36000), true);
 
 console.log("\nprop payouts");
 const propPoints = (pays, balls, betAnswer, winners) =>
@@ -96,6 +104,16 @@ is("men ahead -> no",    womenWin([{night:1,s:24},{night:2,s:20}]), "no");
 is("dead level -> no",   womenWin([{night:1,s:20},{night:2,s:20}]), "no");
 is("only Tuesday scored: NOT settled yet", womenWin([{night:1,s:18}]), null);
 is("only Wednesday scored: NOT settled yet", womenWin([{night:2,s:18}]), null);
+
+console.log("\nyou cannot bet Mirror Balls and then spend the money too");
+const balance = (cap, spent, picked, cheapestTeam, staked) =>
+  ballsFor(cap, spent, picked, cheapestTeam) - staked;
+
+is("bank 14, stake 4, still 10 spare",             balance(50000, 36000, 5, 36000, 4), 10);
+is("stake 4 then upgrade to a $48k team -> short", balance(50000, 48000, 5, 36000, 4) < 0, true);
+is("...and short by exactly 2",                    balance(50000, 48000, 5, 36000, 4), -2);
+is("spending right up to what you staked is fine", balance(50000, 46000, 5, 36000, 4), 0);
+is("dropping someone never puts you short",        balance(50000, 30000, 4, 36000, 4) >= 0, true);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

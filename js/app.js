@@ -215,14 +215,26 @@ function capFor(week) {
 const propsIn = week => state.props.filter(p => p.week === week);
 const betOn = (playerId, propId) => state.propbets.find(b => b.player_id === playerId && b.prop_id === propId) || null;
 
+// The most anyone could bank in a week: what's left after the cheapest legal
+// team. This is what stops "pick nobody and bank fifty" WITHOUT demanding a
+// full team — which matters, because requiring one meant dropping a couple to
+// swap them blew up your balance mid-edit.
+function maxBallsFor(week) {
+  const cheapest = activeCast(week).map(c => priceIn(c.id, week)).sort((a, b) => a - b)
+    .slice(0, rosterFor(week)).reduce((t, p) => t + p, 0);
+  return Math.floor(Math.max(0, capFor(week) - cheapest) / DOLLARS_PER_BALL);
+}
+
+function ballsFromWeek(playerId, week) {
+  const mine = lineupOf(playerId, week);
+  if (!mine.length) return 0;                  // sit a week out entirely, bank nothing
+  const spent = mine.reduce((t, l) => t + l.price, 0);
+  return Math.min(Math.floor(Math.max(0, capFor(week) - spent) / DOLLARS_PER_BALL), maxBallsFor(week));
+}
+
 function ballsEarned(playerId) {
   let n = 0;
-  for (let w = 1; w <= TOTAL_WEEKS; w++) {
-    const mine = lineupOf(playerId, w);
-    if (!mine.length || mine.length < rosterFor(w)) continue;   // no full team, no balls
-    const spent = mine.reduce((t, l) => t + l.price, 0);
-    n += Math.floor(Math.max(0, capFor(w) - spent) / DOLLARS_PER_BALL);
-  }
+  for (let w = 1; w <= TOTAL_WEEKS; w++) n += ballsFromWeek(playerId, w);
   return n;
 }
 
@@ -230,6 +242,20 @@ const ballsStaked = playerId =>
   state.propbets.filter(b => b.player_id === playerId).reduce((t, b) => t + (b.balls || 1), 0);
 
 const ballsLeft = playerId => ballsEarned(playerId) - ballsStaked(playerId);
+
+// What the balance WOULD be if this week's team looked different. Balls are
+// earned from cap you didn't spend, so upgrading your team after betting can
+// strand balls you've already staked — and without this you could bet fourteen,
+// then spend the lot, and keep the bets for free.
+function ballsLeftIf(playerId, week, spentThen, countThen) {
+  let earned = 0;
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    if (w !== week) { earned += ballsFromWeek(playerId, w); continue; }
+    if (!countThen) continue;
+    earned += Math.min(Math.floor(Math.max(0, capFor(w) - spentThen) / DOLLARS_PER_BALL), maxBallsFor(w));
+  }
+  return earned - ballsStaked(playerId);
+}
 
 const propPays = prop => prop.pays ?? (prop.kind === "couple" ? PAYS_COUPLE : PAYS_YESNO);
 
@@ -852,6 +878,11 @@ async function addCouple(id) {
   const price = priceIn(id, week);
   const spent = mine.reduce((t, l) => t + l.price, 0);
   if (spent + price > capFor(week)) { $("#banner").textContent = `That puts you ${money(spent + price - capFor(week))} over the cap.`; return; }
+  const shortAfter = ballsLeftIf(state.player.id, week, spent + price, mine.length + 1);
+  if (shortAfter < 0) {
+    $("#banner").textContent = `Spending that much would leave you ${-shortAfter} Mirror Ball${shortAfter === -1 ? "" : "s"} short of what you've already staked. Take a prop bet back first, or pick someone cheaper.`;
+    return;
+  }
 
   // Optimistic: the card lights up straight away, then the write goes out.
   state.lineups.push({ player_id: state.player.id, week, couple_id: id, price });
