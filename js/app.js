@@ -880,7 +880,12 @@ async function addCouple(id) {
   if (spent + price > capFor(week)) { $("#banner").textContent = `That puts you ${money(spent + price - capFor(week))} over the cap.`; return; }
   const shortAfter = ballsLeftIf(state.player.id, week, spent + price, mine.length + 1);
   if (shortAfter < 0) {
-    $("#banner").textContent = `Spending that much would leave you ${-shortAfter} Mirror Ball${shortAfter === -1 ? "" : "s"} short of what you've already staked. Take a prop bet back first, or pick someone cheaper.`;
+    // The fix lives on another tab, so hand them a way to get there rather than
+    // telling them to go and find it.
+    $("#banner").innerHTML = `That would leave you ${-shortAfter} Mirror Ball${shortAfter === -1 ? "" : "s"} short of what you've already staked. `
+      + `<button id="goprops">Take a bet back</button> — or pick someone cheaper. Nothing's final until the show starts.`;
+    const go = $("#goprops");
+    if (go) go.onclick = () => setView("props");
     return;
   }
 
