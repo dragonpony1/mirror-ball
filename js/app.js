@@ -123,10 +123,24 @@ const priceIn = (coupleId, week) => api.priceOf(coupleId, week, state.prices);
 const locked = week => api.isWeekLocked(week, state.weeks);
 const lockAt = week => api.lockTime(week, state.weeks);
 
-// The week the app opens on: the first one still taking lineups.
+// The week the app opens on: the first one still taking lineups. Once the
+// ballroom is down to the champion there's nothing to pick, so fall through to
+// the trophy week, and failing that the last week that actually happened.
 function currentWeek() {
-  for (let w = 1; w <= TOTAL_WEEKS; w++) if (!locked(w)) return w;
-  return TOTAL_WEEKS;
+  for (let w = 1; w <= TOTAL_WEEKS; w++) if (!locked(w) && weekPlayable(w)) return w;
+  const over = trophyWeek();
+  if (over) return over;
+  for (let w = TOTAL_WEEKS; w >= 1; w--) if (weekHasResults(w)) return w;
+  return 1;
+}
+
+// The week just past the finale — nobody left to pick, results in the week
+// before. Null until the season is actually over.
+function trophyWeek() {
+  for (let w = 2; w <= TOTAL_WEEKS; w++) {
+    if (!weekPlayable(w) && weekHasResults(w - 1)) return w;
+  }
+  return null;
 }
 
 const baseCap = () => state.league?.cap ?? DEFAULT_CAP;
@@ -146,6 +160,13 @@ function rosterFor(week) {
   if (!alive) return baseRoster();                 // nothing has aired yet
   return Math.max(2, Math.min(baseRoster(), alive - BENCH));
 }
+
+// Below two couples there is no team to pick and no game to play — that's the
+// week after the finale, when only the champion is left standing. The week
+// strip hides those, and the lineup screen shows the trophy instead of a board
+// nobody could ever fill.
+const weekPlayable = week => activeCast(week).length >= 2;
+const stillStanding = () => CAST.filter(c => !state.scores.some(s => s.couple_id === c.id && s.eliminated));
 
 // The cap shrinks with the team, or it stops biting — $50,000 buys the three
 // best dancers outright. Never let it fall below what the cheapest legal team
@@ -269,11 +290,24 @@ function buildWeekStrip() {
   const box = $("#weeks");
   box.innerHTML = "";
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    // Weeks past the finale have nobody left to pick; don't offer them at all
+    // unless they somehow carry results.
+    if (!weekPlayable(w) && !weekHasResults(w)) continue;
     const b = document.createElement("button");
     b.textContent = w === 1 ? "Wk 1 ✨" : `Wk ${w}`;
     if (weekHasResults(w)) b.classList.add("done");
     b.setAttribute("aria-pressed", String(w === state.week));
     b.onclick = () => { state.week = w; buildWeekStrip(); render(); };
+    box.appendChild(b);
+  }
+  // One last chip for the trophy, so the season has an ending you can tap.
+  const over = trophyWeek();
+  if (over) {
+    const b = document.createElement("button");
+    b.textContent = "🏆 Final";
+    b.classList.add("done");
+    b.setAttribute("aria-pressed", String(over === state.week));
+    b.onclick = () => { state.week = over; buildWeekStrip(); render(); };
     box.appendChild(b);
   }
 }
@@ -292,7 +326,8 @@ function render() {
   }
   if (!signedIn || state.showJoin) return renderJoin();
 
-  $("#range").textContent = weekLabel(state.week);
+  // "Week 12" means nothing on the trophy screen — there was no week 12.
+  $("#range").textContent = state.week === trophyWeek() ? "🏆 Final" : weekLabel(state.week);
   if (state.view === "lineup") renderLineup();
   else if (state.view === "ballroom") renderBallroom();
   else if (state.view === "league") renderLeague();
@@ -319,6 +354,29 @@ function renderLineup() {
   const when = lockAt(week).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   let html = "";
+
+  // Season over: no board, just the champion and where everyone finished.
+  if (!weekPlayable(week)) {
+    const champs = stillStanding();
+    const table = state.players.map(p => ({ p, pts: seasonPoints(p.id) }))
+      .sort((a, b) => b.pts - a.pts);
+    $("#content").innerHTML = `<div class="join" style="text-align:center">
+      <div style="font-size:3rem">🏆</div>
+      <h2 style="margin:6px 0">${champs.length === 1
+        ? `${esc(champs[0].celeb)} and ${esc(champs[0].pro)} win the Mirrorball`
+        : "That's the season"}</h2>
+      <p class="hint">Nothing left to pick — the ballroom's empty. Here's how it finished.</p>
+      ${table.length ? `<table class="standings" style="text-align:left;margin-top:12px">
+        ${table.map((r, i) => `<tr class="${r.p.id === state.player.id ? "me" : ""}">
+          <td class="pos">${i === 0 ? "🥇" : i + 1}</td>
+          <td>${esc(r.p.name)}${r.p.id === state.player.id ? " (you)" : ""}</td>
+          <td class="pts">${r.pts}</td></tr>`).join("")}
+      </table>` : ""}
+      <p class="hint" style="margin-top:14px">Tap back through the weeks to see how it played out.</p>
+    </div>`;
+    measureHeader();
+    return;
+  }
 
   if (isLocked) {
     html += `<p class="hint"><span class="pill locked">Locked</span> Lineups closed ${esc(when)}.</p>`;
