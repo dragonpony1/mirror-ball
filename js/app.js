@@ -23,6 +23,7 @@ const state = {
   showJoin: false,
   pendingInvite: null,
   recapPlayer: null,
+  allLeagues: null, pickPlayers: null,  // the no-passcode "who are you?" front door
   showCoach: false,        // a veteran tapped "How this works" to reopen it
   carriedFrom: null,       // week this week's team was inherited from, if any
   commishWeek: null,
@@ -585,7 +586,7 @@ function render() {
     $("#content").innerHTML = `<p class="empty">The app isn't connected to its database yet.</p>`;
     return;
   }
-  if (!signedIn || state.showJoin) return renderJoin();
+  if (!signedIn || state.showJoin) { if (!state.player) loadFrontDoor(); return renderJoin(); }
 
   // "Week 12" means nothing on the trophy screen — there was no week 12.
   $("#range").textContent = state.week === trophyWeek() ? "🏆 Final" : weekLabel(state.week);
@@ -604,7 +605,14 @@ function renderLineup() {
   const mine = lineupOf(state.player.id, week);
   const roster = rosterFor(week), weekCap = capFor(week);
   const spent = mine.reduce((t, l) => t + l.price, 0);
-  const left = weekCap - spent;
+  const capLeft = weekCap - spent;
+  // Cap you've already turned into a STAKED Mirror Ball is spoken for. Showing
+  // it as "left to spend" is a number you can't actually act on — Matt had
+  // $1,000 left, bet it on a prop, and the team screen still offered it.
+  const otherWeeksBalls = ballsEarned(state.player.id) - ballsFromWeek(state.player.id, week);
+  const heldBalls = Math.max(0, ballsStaked(state.player.id) - otherWeeksBalls);
+  const held = heldBalls * DOLLARS_PER_BALL;
+  const left = Math.max(0, capLeft - held);
   const full = mine.length >= roster;
 
   // Eliminations happen after you've already built next week's team, so a saved
@@ -691,7 +699,8 @@ function renderLineup() {
         <b>${money(left)}</b>
         <span class="right">left to spend<br>${mine.length} of ${roster} couple${roster === 1 ? "" : "s"}</span>
       </div>
-      <div class="capbar"><span style="width:${Math.min(100, (spent / weekCap) * 100).toFixed(1)}%"></span></div>
+      <div class="capbar"><span style="width:${Math.min(100, ((spent + held) / weekCap) * 100).toFixed(1)}%"></span></div>
+      ${heldBalls ? `<p class="hint" style="margin:7px 0 0">🪩 ${heldBalls} staked on prop bets — ${money(held)} of your cap is spoken for.</p>` : ""}
       ${dead.length ? `<p class="hint" style="margin:7px 0 0"><b style="color:var(--bad)">${
         dead.map(l => esc(byId(l.couple_id).celeb)).join(" and ")} went home — drop ${dead.length === 1 ? "them" : "both"} and pick again.</b></p>` : ""}
       ${overSize ? `<p class="hint" style="margin:7px 0 0"><b style="color:var(--bad)">Only ${roster} couples this week — drop ${overSize} more.</b></p>` : ""}
@@ -1640,6 +1649,33 @@ async function savePrices() {
 
 // ---------- join / leagues ----------
 
+// With one league — which is the normal case — asking for a passcode is pure
+// friction, and it's what put Melissa through "rejoining" when she already had
+// an account. Fetch what exists and let her just tap her own name.
+async function loadFrontDoor() {
+  if (state.allLeagues) return;
+  try {
+    state.allLeagues = await api.listAllLeagues() || [];
+    if (state.allLeagues.length === 1) {
+      state.pickPlayers = await api.listPlayers(state.allLeagues[0].id) || [];
+    }
+    render();
+  } catch { state.allLeagues = []; }
+}
+
+async function signInAs(league, player) {
+  state.player = { id: player.id, name: player.name };
+  localStorage.setItem("dwts-player", JSON.stringify(state.player));
+  state.memberships = state.memberships.filter(m => m.league.id !== league.id);
+  state.memberships.push({ league, player: state.player });
+  rememberLeague(league);
+  state.showJoin = false;
+  const standalone = matchMedia("(display-mode: standalone)").matches || !!navigator.standalone;
+  api.touchPlayer(player.id, standalone).catch(() => {});
+  await loadLeague();
+  $("#banner").textContent = `Welcome back, ${player.name}.`;
+}
+
 function renderJoin() {
   const mine = state.memberships.filter(m => !state.league || m.league.id !== state.league.id);
 
@@ -1660,6 +1696,32 @@ function renderJoin() {
       try { state.pendingInvite = null; await joinLeague(lg, name); }
       catch (err) { state.pendingInvite = lg; showError(err); }
     };
+    return;
+  }
+
+  // Nobody signed in and exactly one league: skip the passcode entirely.
+  if (!state.player && state.allLeagues?.length === 1 && state.pickPlayers && !state.forceJoinForm) {
+    const lg = state.allLeagues[0];
+    $("#content").innerHTML = `
+      <div class="join" style="text-align:center">
+        <div style="font-size:2.6rem">${esc(lg.icon || "🪩")}</div>
+        <h2 style="margin:6px 0">${esc(lg.name)}</h2>
+        <p class="hint">Tap your name and you're straight back in. No passcode.</p>
+      </div>
+      <div class="join">
+        ${state.pickPlayers.map(p => `<button type="button" class="leaguebtn" data-me="${esc(p.id)}">${esc(p.name)}</button>`).join("")
+          || `<p class="hint">Nobody's joined yet — be the first.</p>`}
+        <p class="hint" style="margin-top:12px">Not on the list? <button type="button" class="linkbtn" id="imnew">I'm new here</button></p>
+      </div>`;
+    $("#content").querySelectorAll("[data-me]").forEach(b => b.onclick = () => {
+      const p = state.pickPlayers.find(x => x.id === b.dataset.me);
+      if (p) signInAs(lg, p).catch(showError);
+    });
+    $("#imnew").onclick = () => {
+      const name = prompt(`Your name for ${lg.name}?`);
+      if (name && name.trim()) joinLeague(lg, name.trim()).catch(showError);
+    };
+    measureHeader();
     return;
   }
 

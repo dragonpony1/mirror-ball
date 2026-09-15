@@ -44,6 +44,12 @@ export async function createLeague(fields) {
   return created[0];
 }
 
+// Every league there is. With one league (the normal case) the join screen can
+// skip the passcode entirely and just ask who you are.
+export function listAllLeagues() {
+  return rest(`dwts_leagues?select=${LEAGUE_COLS}&order=created_at`);
+}
+
 // Recovery: every league a given name belongs to, so a phone can rebuild its list.
 export function findPlayerLeagues(name) {
   return rest(`dwts_players?name=eq.${encodeURIComponent(name)}&select=id,name,dwts_leagues(${LEAGUE_COLS})`);
