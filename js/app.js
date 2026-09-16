@@ -315,7 +315,11 @@ const propPays = prop => prop.pays ?? (prop.kind === "couple" ? PAYS_COUPLE : PA
 // who named any of the couples that tied.
 function autoWinners(prop) {
   const wk = prop.week;
-  if (!weekHasResults(wk)) return null;
+  // FINISHED, not merely started. On the two-night premiere, settling off
+  // Tuesday's eight men paid out "who scores highest" before eight women had
+  // danced — and would have answered "did anyone score a 30" as no with half
+  // the card still to come.
+  if (!weekComplete(wk)) return null;
   const scored = activeCastPlusEliminated(wk)
     .map(c => ({ id: c.id, s: scoreFor(wk, c.id) })).filter(x => x.s != null);
   if (!scored.length) return null;
