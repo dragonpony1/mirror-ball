@@ -546,9 +546,27 @@ select option { background: #2a0a3d; color: var(--ink); }
 .standings .pts { text-align: right; font-family: var(--display); font-size: 1.3rem; color: var(--gold); }
 .standings .me td { background: rgba(255,45,149,.13); }
 
-.recap { background: rgba(0,0,0,.28); border-radius: 12px; padding: 10px 12px; margin: 8px 0 14px; font-size: .86rem; }
-.recap li { margin: 3px 0; list-style: none; }
-.recap ul { margin: 6px 0; padding: 0; }
+/* the itemised breakdown in the tap-a-name popup */
+.recapline {
+  /* MUST wrap: the note is a full-width flex item, and in a non-wrapping row it
+     demands the whole width and squeezes the label to one word per line. */
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 2px 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: .88rem;
+}
+.recapline > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.recapline > span small { display: block; font-size: .72rem; color: var(--dim); }
+.recapline > b { flex: 0 0 auto; font-family: var(--display); font-size: 1.25rem; color: var(--gold); }
+.recapline > small { flex: 1 0 100%; font-size: .7rem; color: var(--dim); text-align: right; }
+.recaptop {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px;
+}
+.recaptop > div {
+  border-radius: 12px; padding: 9px 6px; text-align: center;
+  border: 1px solid var(--edge); background: rgba(255,255,255,.05);
+}
+.recaptop b { display: block; font-family: var(--display); font-size: 1.6rem; color: var(--gold); line-height: 1; }
+.recaptop span { display: block; font-size: .66rem; color: var(--dim); margin-top: 3px; }
+.modalcard h2 { font-size: 1.05rem; margin: 18px 0 2px; color: var(--gold); letter-spacing: .02em; }
 
 /* who's ready for the open week */
 .ready { display: grid; gap: 8px; }
@@ -612,7 +630,8 @@ select option { background: #2a0a3d; color: var(--ink); }
   box-shadow: 0 0 50px rgba(255,210,74,.25);
 }
 .modalcard.wide { max-width: 560px; }
-.modalcard h2 { margin-top: 0; }
+.modalcard { overflow-x: hidden; }   /* nothing inside should ever scroll sideways */
+.modalcard > h2:first-child { margin-top: 0; }
 .qr {
   display: block; width: 190px; max-width: 70%; margin: 12px auto 4px;
   background: #fff; padding: 8px; border-radius: 10px; image-rendering: pixelated;

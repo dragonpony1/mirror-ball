@@ -22,7 +22,6 @@ const state = {
   chat: [],
   showJoin: false,
   pendingInvite: null,
-  recapPlayer: null,
   allLeagues: null, pickPlayers: null,  // the no-passcode "who are you?" front door
   showCoach: false,        // a veteran tapped "How this works" to reopen it
   carriedFrom: null,       // week this week's team was inherited from, if any
@@ -593,7 +592,6 @@ function measureHeader() {
 
 function setView(v) {
   state.view = v;
-  state.recapPlayer = null;
   $("#banner").textContent = "";
   document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
   render();
@@ -1359,7 +1357,6 @@ function renderLeague() {
 
   html += readinessHtml();
   html += `<h2>Standings</h2>${standingsHtml()}`;
-  if (state.recapPlayer) html += recapHtml(state.recapPlayer);
 
   // Photos. Deliberately its own section rather than making every medallion a
   // file picker — those live inside buttons that already do something.
@@ -1407,8 +1404,7 @@ function renderLeague() {
   if ($("#facefile")) $("#facefile").onchange = uploadFace;
   if ($("#nudge")) $("#nudge").onclick = nudgeStragglers;
   $("#content").querySelectorAll("[data-player]").forEach(tr => tr.onclick = () => {
-    state.recapPlayer = state.recapPlayer === tr.dataset.player ? null : tr.dataset.player;
-    render();
+    openRecap(tr.dataset.player);
   });
   drawChat();
 }
@@ -1467,32 +1463,80 @@ function standingsHtml() {
       <td class="pts">${r.season}</td>
     </tr>`).join("")}
   </table>
-  <p class="hint">Tap a name to see their week.</p>`;
+  <p class="hint">Tap a name to see exactly where their points came from.</p>`;
 }
 
-function recapHtml(pid) {
+// Tap a name in the standings and get the whole sum, itemised — team, calls and
+// prop bets, each with what it paid and why. Matt wanted to be able to see at a
+// glance where somebody's points came from without doing arithmetic himself.
+function openRecap(pid) {
   const p = state.players.find(x => x.id === pid);
   const week = state.week;
   const mine = lineupOf(pid, week);
-  if (!mine.length) return `<div class="recap">${esc(p?.name)} didn't enter a lineup for ${weekLabel(week)}.</div>`;
-  if (!locked(week) && pid !== state.player.id) return `<div class="recap">${esc(p?.name)}'s lineup is hidden until ${weekLabel(week)} locks.</div>`;
+  const hidden = !locked(week) && pid !== state.player.id;
 
-  return `<div class="recap"><b>${esc(p?.name)} — ${weekLabel(week)}</b><ul>
-    ${mine.map(l => {
-      const c = byId(l.couple_id), s = scoreFor(week, l.couple_id);
-      return `<li>${s == null ? "·" : s === 30 ? "🏆" : "✓"} ${esc(c.celeb)} — ${s == null ? "yet to dance" : `${s} pts`}</li>`;
-    }).join("")}
-    ${isFinale(week) && winnerPickOf(pid) ? (() => {
+  const line = (left, right, note) =>
+    `<div class="recapline"><span>${left}</span><b>${right}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+
+  // The whole point of this popup is "why does that number look like that?", so
+  // lead with the number and let the itemised rows underneath explain it.
+  let body = `<div class="recaptop">`
+    + `<div><b>${weekPoints(pid, week)}</b><span>${esc(weekLabel(week))}</span></div>`
+    + `<div><b>${seasonPoints(pid)}</b><span>Season</span></div>`
+    + `<div><b>${ballsLeft(pid)}</b><span>🪩 left</span></div>`
+    + `</div>`;
+  if (hidden) {
+    body += `<p class="hint">${esc(p?.name)}'s picks stay private until ${weekLabel(week)} locks.</p>`;
+  } else if (!mine.length) {
+    body += `<p class="hint">${esc(p?.name)} didn't get a team in for ${weekLabel(week)}.</p>`;
+  } else {
+    const teamPts = mine.reduce((t, l) => t + (scoreFor(week, l.couple_id) ?? 0), 0);
+    body += `<h2>Team · ${teamPts}</h2>`;
+    for (const l of mine) {
+      const c = byId(l.couple_id), sc = scoreFor(week, l.couple_id);
+      body += line(esc(c.celeb), sc == null ? "—" : sc, sc == null ? "hasn't danced" : "");
+    }
+
+    // calls
+    let callPts = 0, calls = "";
+    if (isFinale(week) && winnerPickOf(pid)) {
       const pick = winnerPickOf(pid), champ = champion();
-      return `<li>🏆 ${esc(byId(pick.couple_id).celeb)} for the win — ${
-        !champ ? "pending" : pick.couple_id === champ.id ? `right, +${winnerBonus()}` : "missed"}</li>`;
-    })() : ""}
-    ${elimPicksOf(pid, week).map(ep => `<li>🏠 ${esc(byId(ep.couple_id).celeb)} — ${
-      noElimination(week) ? "no elimination" :
-      elimsIn(week).includes(ep.couple_id) ? `right, +${elimBonus()}` :
-      weekHasResults(week) ? "missed" : "pending"}</li>`).join("")}
-  </ul><b>${weekPoints(pid, week)} points</b></div>`;
+      const right = champ && pick.couple_id === champ.id;
+      if (right) callPts += winnerBonus();
+      calls += line("🏆 " + esc(byId(pick.couple_id).celeb) + " to win", right ? "+" + winnerBonus() : (champ ? 0 : "—"), champ ? "" : "still to come");
+    }
+    for (const ep of elimPicksOf(pid, week)) {
+      const right = !noElimination(week) && elimsIn(week).includes(ep.couple_id);
+      if (right) callPts += elimBonus();
+      const settled = noElimination(week) || elimsIn(week).length > 0;
+      calls += line("🏠 " + esc(byId(ep.couple_id).celeb) + " goes home",
+        right ? "+" + elimBonus() : (settled ? 0 : "—"),
+        noElimination(week) ? "nobody went home" : settled ? "" : "nobody marked out yet");
+    }
+    if (calls) body += `<h2>Calls · ${callPts}</h2>` + calls;
+
+    // props
+    const bets = state.propbets.filter(b => b.player_id === pid);
+    let propPts = 0, rows = "";
+    for (const b of bets) {
+      const prop = state.props.find(x => x.id === b.prop_id);
+      if (!prop || prop.week !== week) continue;
+      const win = winningAnswers(prop);
+      const got = propPoints(pid, prop);
+      propPts += got;
+      rows += line(
+        `🪩 ${b.balls} on “${esc(labelFor(prop, b.answer))}”<br><small>${esc(prop.text)}</small>`,
+        win ? (got ? "+" + got : 0) : "—",
+        win ? "" : (prop.auto ? "waiting on the full card" : "nobody has called it yet"));
+    }
+    if (rows) body += `<h2>Prop bets · ${propPts}</h2>` + rows;
+
+  }
+
+  $("#commish").innerHTML = `<h2 style="margin-top:0">${esc(p?.name || "Player")}</h2>${body}`;
+  $("#commishmodal").hidden = false;
 }
+
 
 // ---------- rules ----------
 
