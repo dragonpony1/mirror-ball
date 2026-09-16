@@ -1244,36 +1244,6 @@ function renderBallroom() {
     }
   }
 
-  // Photos. Deliberately its own section rather than making every medallion a
-  // file picker — those live inside buttons that already do something.
-  const withFace = CAST.filter(c => faceOf(c.id)).length;
-  html += `<h2>Photos</h2>
-    <p class="hint">${withFace} of ${CAST.length} have a picture. Anyone can add or change one — use whatever you like, it's shared with the whole league.</p>
-    <div class="faces">
-      ${CAST.map(c => `<button type="button" class="facecell" data-face="${esc(c.id)}" title="${esc(c.celeb)}">
-        ${medallionHtml(c)}
-        <span>${esc(c.celeb.split(" ")[0])}</span>
-        <small>${faceOf(c.id) ? "change" : "+ add"}</small>
-      </button>`).join("")}
-    </div>
-    <input type="file" accept="image/*" id="facefile" hidden>`;
-
-  // Rare, commissioner-ish switches. At the bottom, as a link, because almost
-  // nobody ever needs them and they were cluttering the scoring screen.
-  html += `<hr><p class="hint" style="text-align:center">
-    <button type="button" class="linkbtn" id="openCommish">Week settings</button>
-    &nbsp;·&nbsp; for a week with no elimination, or the last episode
-  </p>`;
-
-  // CC BY and CC BY-SA both require the photographer to be credited, so the
-  // ones that came from Wikimedia say who took them. Uploads by the league
-  // just show who added them.
-  const credited = CAST.map(c => ({ c, f: faceOf(c.id) })).filter(x => x.f?.added_by);
-  if (credited.length) {
-    html += `<p class="hint" style="font-size:.72rem;margin-top:10px">Photo credits: ${
-      credited.map(x => `${esc(x.c.celeb.split(" ")[0])} — ${esc(x.f.added_by)}`).join(" · ")}</p>`;
-  }
-
   // who's already out
   const out = CAST.filter(c => isOut(c.id, week));
   if (out.length) {
@@ -1281,7 +1251,6 @@ function renderBallroom() {
   }
 
   $("#content").innerHTML = html;
-  $("#openCommish").onclick = () => openCommish(week);
   $("#content").querySelectorAll("[data-live]").forEach(inp => {
     inp.onchange = () => saveOneScore(week, inp.dataset.live, inp.value);
     // Enter should commit and move on, not submit anything
@@ -1289,12 +1258,6 @@ function renderBallroom() {
   });
   $("#content").querySelectorAll("[data-home]").forEach(b =>
     b.onclick = () => toggleHome(week, b.dataset.home));
-  $("#content").querySelectorAll("[data-face]").forEach(b => b.onclick = () => {
-    state.facingCouple = b.dataset.face;
-    $("#facefile").value = "";
-    $("#facefile").click();
-  });
-  $("#facefile").onchange = uploadFace;
 }
 
 // One score, saved the moment you leave the box. Optimistic so the standings
@@ -1385,6 +1348,32 @@ function renderLeague() {
   html += `<h2>Standings</h2>${standingsHtml()}`;
   if (state.recapPlayer) html += recapHtml(state.recapPlayer);
 
+  // Photos. Deliberately its own section rather than making every medallion a
+  // file picker — those live inside buttons that already do something.
+  const withFace = CAST.filter(c => faceOf(c.id)).length;
+  html += `<h2>Photos</h2>
+    <p class="hint">${withFace} of ${CAST.length} have a picture. Anyone can add or change one — use whatever you like, it's shared with the whole league.</p>
+    <div class="faces">
+      ${CAST.map(c => `<button type="button" class="facecell" data-face="${esc(c.id)}" title="${esc(c.celeb)}">
+        ${medallionHtml(c)}
+        <span>${esc(c.celeb.split(" ")[0])}</span>
+        <small>${faceOf(c.id) ? "change" : "+ add"}</small>
+      </button>`).join("")}
+    </div>
+    <input type="file" accept="image/*" id="facefile" hidden>`;
+
+
+
+  // CC BY and CC BY-SA both require the photographer to be credited, so the
+  // ones that came from Wikimedia say who took them. Uploads by the league
+  // just show who added them.
+  const credited = CAST.map(c => ({ c, f: faceOf(c.id) })).filter(x => x.f?.added_by);
+  if (credited.length) {
+    html += `<p class="hint" style="font-size:.72rem;margin-top:10px">Photo credits: ${
+      credited.map(x => `${esc(x.c.celeb.split(" ")[0])} — ${esc(x.f.added_by)}`).join(" · ")}</p>`;
+  }
+
+
   html += `<h2>League chat</h2>
     <div class="chat">
       <div class="chatlog" id="chatlog"></div>
@@ -1397,6 +1386,12 @@ function renderLeague() {
   $("#content").innerHTML = html;
   $("#pic").onchange = uploadLeaguePhoto;
   $("#chatform").onsubmit = onChat;
+  $("#content").querySelectorAll("[data-face]").forEach(b => b.onclick = () => {
+    state.facingCouple = b.dataset.face;
+    $("#facefile").value = "";
+    $("#facefile").click();
+  });
+  if ($("#facefile")) $("#facefile").onchange = uploadFace;
   if ($("#nudge")) $("#nudge").onclick = nudgeStragglers;
   $("#content").querySelectorAll("[data-player]").forEach(tr => tr.onclick = () => {
     state.recapPlayer = state.recapPlayer === tr.dataset.player ? null : tr.dataset.player;
@@ -1575,7 +1570,13 @@ function renderRules() {
   </div>
 
   <h2>Who types in the scores?</h2>
-  <p class="hint">Anyone in the league. After the show, go to <b>Ballroom → Enter scores</b> and type each couple's total out of 30 and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo. A check runs the next morning against the official scores and quietly fixes any slips.</p>`;
+  <p class="hint">Anyone in the league. During or after the show, open <b>Ballroom</b> and type each couple's total out of 30 and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo. A check runs the next morning against the official scores and quietly fixes any slips.</p>
+  <hr>
+  <p class="hint" style="text-align:center">
+    <button type="button" class="linkbtn" id="openCommish">Week settings</button>
+    &nbsp;·&nbsp; only for a week where nobody went home, or the last episode
+  </p>`;
+  if ($("#openCommish")) $("#openCommish").onclick = () => openCommish(state.week);
 }
 
 // ---------- writing and settling props ----------
@@ -2177,6 +2178,19 @@ function maybeInstallTip() {
   if (b) b.onclick = () => { $("#sharemodal").hidden = false; addToHomeScreen(); };
 }
 
+// location.reload(true) is long dead — browsers ignore the flag, so tapping
+// refresh could leave you on the SAME old JavaScript while the banner insisted
+// a new version was ready. GitHub Pages caches each file for ~10 minutes, and
+// every module is its own request. Pull them all past the cache first, THEN
+// reload, so the refresh actually refreshes.
+async function hardRefresh() {
+  const bar = $("#updatebar");
+  bar.textContent = "Fetching the new version…";
+  const files = ["index.html", "js/app.js", "js/api.js", "js/config.js", "js/cast.js", "css/style.css"];
+  await Promise.all(files.map(f => fetch(f, { cache: "reload" }).catch(() => {})));
+  location.reload();
+}
+
 async function checkForUpdate() {
   try {
     const res = await fetch("js/config.js", { cache: "no-store" });
@@ -2185,7 +2199,7 @@ async function checkForUpdate() {
     const m = txt.match(/VERSION\s*=\s*"([^"]+)"/);
     if (m && m[1] !== VERSION) {
       $("#updatebar").innerHTML = `A newer version (v${esc(m[1])}) is ready. <button id="doupdate">Tap to refresh</button>`;
-      $("#doupdate").onclick = () => location.reload(true);
+      $("#doupdate").onclick = hardRefresh;
     }
   } catch {}
 }
