@@ -2,7 +2,7 @@ import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BON
          DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE,
          PROP_OKS_NEEDED, PROP_OKS_FROM } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
-import { majority, approval } from "./rules.js";
+import { majority, approval, propResult } from "./rules.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -382,11 +382,17 @@ const myAnswerOn = prop => api.propVotesAvailable()
 const winningAnswers = prop => {
   if (!okState(prop).ok) return null;   // the league never accepted it as a bet
   if (prop.auto) return autoWinners(prop);
-  // Votes win when there are any. Falling back to prop.answer keeps every prop
-  // already called under the old one-person rule settled exactly as it was.
-  const m = majority(votesOn(prop.id));
-  if (m.votes) return m.answer ? new Set([m.answer]) : null;
-  return prop.answer ? new Set([prop.answer]) : null;
+  // A hand-judged prop is about the EPISODE, and week 1's episode runs over two
+  // nights — the men Tuesday, the women Wednesday. "Will anyone cry on camera?"
+  // simply isn't answerable on Tuesday. So votes are collected live, because
+  // that's the fun of it, but nothing pays until the whole card is in. Same
+  // guard autoWinners() already has, for the same reason.
+  const answer = propResult({
+    votes: votesOn(prop.id),
+    weekFinished: weekComplete(prop.week),
+    fallback: prop.answer,
+  });
+  return answer ? new Set([answer]) : null;
 };
 
 const propSettled = prop => !!winningAnswers(prop);
@@ -1167,6 +1173,7 @@ function okBox(prop) {
 
 // Why a human-judged prop still hasn't paid, in the breakdown popup.
 function unsettledWhy(prop) {
+  if (!weekComplete(prop.week)) return "waiting on the rest of the episode";
   const m = majority(votesOn(prop.id));
   if (m.tied) return "votes are tied — nothing pays yet";
   return "nobody has called it yet";
@@ -1184,11 +1191,16 @@ function voteBox(prop, options) {
   const split = m.tally.map(([a, n]) =>
     `<span class="vtally ${m.answer === a ? "lead" : ""}">${esc(labelFor(prop, a))} <b>${n}</b></span>`).join("");
 
+  // Week 1 is one episode over two nights. Until every couple has danced and
+  // been scored, a vote is a running count, not a result.
+  const early = !weekComplete(prop.week);
+
   let note;
   if (!m.votes) note = "Nobody's called it yet. Say what happened and it counts.";
   else if (m.tied) note = "It's a tie, so nothing pays yet — one more vote settles it.";
   else if (m.votes === 1) note = `Only ${esc(nameOf(votes[0].player_id))} has called it. Agree or disagree and the majority wins.`;
   else note = `${m.tally[0][1]} of ${m.votes} say ${esc(labelFor(prop, m.answer))}.`;
+  if (early) note += ` <b>Nothing pays until the whole of ${esc(weekLabel(prop.week))} has danced and been scored</b> — change your mind any time before then.`;
 
   return `<div class="votebox">
     <span class="vhead">What actually happened?</span>

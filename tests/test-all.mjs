@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
-import { majority, approval } from "../js/rules.js";
+import { majority, approval, propResult } from "../js/rules.js";
 
 let pass = 0, fail = 0;
 const is = (name, got, want) => {
@@ -207,6 +207,26 @@ is("the bar never exceeds the number of people",
    A({ prop: written, oks: ticks(4), playerCount: 4 }).ok, true);
 is("an unloaded league falls back to the full bar",
    A({ prop: written, oks: ticks(4), playerCount: 0 }).ok, false);
+
+console.log("");
+console.log("propResult() -- one episode over two nights pays at the END of it");
+// Bitten twice now. Week 1 was the men on Tuesday and the women on Wednesday.
+// "Will a celebrity cry on camera?" cannot be answered on Tuesday night, so a
+// vote cast then is a running count, not a result.
+const R = o => propResult({ weekFinished: true, ...o });
+const yes = n => Array.from({ length: n }, (_, i) => ({ player_id: "p" + i, answer: "yes" }));
+
+is("five agreeing on a finished week pays",     R({ votes: yes(5) }), "yes");
+is("...but not with the women still to dance",  R({ votes: yes(5), weekFinished: false }), null);
+is("one early vote settles nothing",            R({ votes: yes(1), weekFinished: false }), null);
+is("no votes and no old answer is nothing",     R({ votes: [] }), null);
+is("a tie pays nobody even when the card's in",
+   R({ votes: [{ player_id: "a", answer: "yes" }, { player_id: "b", answer: "no" }] }), null);
+
+// Props called by one person before voting existed have to stay called.
+is("the old one-person answer still stands",    R({ votes: [], fallback: "no" }), "no");
+is("...but votes outrank it once they exist",   R({ votes: yes(2), fallback: "no" }), "yes");
+is("...and even it waits for the full card",    R({ votes: [], fallback: "no", weekFinished: false }), null);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

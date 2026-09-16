@@ -42,3 +42,19 @@ export function approval({ prop, oks = [], playerCount = 0, needed = 5, from = n
   const ticks = oks.length;
   return { required, bar, ticks, ok: !required || ticks >= bar, short: Math.max(0, bar - ticks) };
 }
+
+// The result of a hand-judged prop, or null for "not settled".
+//
+// `weekFinished` is the guard that has now caught this app out twice: a prop is
+// about the EPISODE, and week 1's episode ran over two nights. "Will anyone cry
+// on camera?" is not answerable on Tuesday with eight women still to dance. So
+// votes are collected live — that's the fun of it — and simply don't pay until
+// every couple has danced and been scored.
+//
+// `fallback` is the single answer from before voting existed, so props called
+// under the old one-person rule stay called.
+export function propResult({ votes = [], weekFinished = true, fallback = null }) {
+  if (!weekFinished) return null;
+  const m = majority(votes);
+  return m.votes ? m.answer : (fallback || null);
+}
