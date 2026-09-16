@@ -128,5 +128,19 @@ for (const f of ["js/app.js", "js/api.js", "js/cast.js", "js/config.js"]) {
   is(f + (ok ? "" : " — " + why), ok, true);
 }
 
+console.log("");
+console.log("salaries reprice themselves off last week");
+// Mirrors priceIn(): $250 a point either side of the night average, rounded
+// to $100, clamped. Nobody types a salary; this is the whole mechanism.
+const reprice = (price, score, avg) => Math.max(4000, Math.min(18000,
+  Math.round((price + (score - avg) * 250) / 100) * 100));
+
+is("a couple who matches the average does not move", reprice(10000, 20, 20), 10000);
+is("beat the average by 5 -> up $1,250",             reprice(10000, 25, 20), 11300);
+is("below the average by 5 -> down $1,250",          reprice(10000, 15, 20), 8800);
+is("a cheap couple who smashes it gets dear",        reprice(6000, 28, 19), 8300);
+is("never falls below the floor",                    reprice(4200, 5, 25), 4000);
+is("never rises above the ceiling",                  reprice(17800, 30, 15), 18000);
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

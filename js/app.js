@@ -135,7 +135,36 @@ const activeCast = week => CAST.filter(c => !isOut(c.id, week));
 const weekHasResults = week => state.scores.some(s => s.week === week && s.score != null);
 const noElimination = week => !!state.weeks.find(w => w.week === week)?.no_elimination;
 
-const priceIn = (coupleId, week) => api.priceOf(coupleId, week, state.prices);
+// Prices move on their own. Nobody should have to sit and retype sixteen
+// salaries every week — the interesting part is that your cheap pick got dear,
+// not choosing the number. A couple who beat the night's average gets more
+// expensive, one who flopped gets cheaper, $250 a point either side, clamped so
+// nobody ends up free or unaffordable.
+const REPRICE_PER_POINT = 250, PRICE_FLOOR = 4000, PRICE_CEIL = 18000;
+
+function weekAverage(week) {
+  const xs = activeCastPlusEliminated(week)
+    .map(c => scoreFor(week, c.id)).filter(v => v != null);
+  return xs.length ? xs.reduce((t, v) => t + v, 0) / xs.length : null;
+}
+
+function priceIn(coupleId, week) {
+  // An explicit row always wins — that's the manual override escape hatch.
+  const set = state.prices.find(p => p.week === week && p.couple_id === coupleId);
+  if (set) return set.price;
+
+  let price = CAST.find(c => c.id === coupleId)?.price ?? 0;
+  for (let w = 1; w < week; w++) {
+    const pinned = state.prices.find(p => p.week === w && p.couple_id === coupleId);
+    if (pinned) price = pinned.price;
+    const avg = weekAverage(w);
+    const s = scoreFor(w, coupleId);
+    if (avg == null || s == null) continue;      // that week never happened for them
+    price = Math.round((price + (s - avg) * REPRICE_PER_POINT) / 100) * 100;
+    price = Math.max(PRICE_FLOOR, Math.min(PRICE_CEIL, price));
+  }
+  return price;
+}
 const locked = week => api.isWeekLocked(week, state.weeks);
 const lockAt = week => api.lockTime(week, state.weeks);
 
@@ -1171,10 +1200,7 @@ function renderBallroom() {
   // be scored in the thirty seconds before the next one dances.
   const live = locked(week);
 
-  let html = `<div class="row" style="justify-content:space-between">
-    <h2 style="margin:4px 0">${weekLabel(week)} scores</h2>
-    <button class="ghost" id="openCommish">⚙︎ Salaries &amp; settings</button>
-  </div>`;
+  let html = `<h2 style="margin:4px 0">${weekLabel(week)} scores</h2>`;
 
   if (live) {
     html += `<p class="hint">Type a score as each couple finishes — it saves on its own, one at a time. Nobody has to do the whole card, and the official scores are checked against these anyway.</p>`;
@@ -1231,6 +1257,13 @@ function renderBallroom() {
       </button>`).join("")}
     </div>
     <input type="file" accept="image/*" id="facefile" hidden>`;
+
+  // Rare, commissioner-ish switches. At the bottom, as a link, because almost
+  // nobody ever needs them and they were cluttering the scoring screen.
+  html += `<hr><p class="hint" style="text-align:center">
+    <button type="button" class="linkbtn" id="openCommish">Week settings</button>
+    &nbsp;·&nbsp; for a week with no elimination, or the last episode
+  </p>`;
 
   // CC BY and CC BY-SA both require the photographer to be credited, so the
   // ones that came from Wikimedia say who took them. Uploads by the league
@@ -1472,7 +1505,9 @@ function renderRules() {
       <b>Everything locks when the show starts</b> — Tuesdays at 8pm Eastern. After that you can see everyone's team.
     </p>
     <p class="hint" style="font-size:.9rem">
-      <b>A new team every week.</b> Nobody is stuck with a bad draft. Prices move as the season goes, so this week's bargain won't stay cheap.
+      <b>A new team every week.</b> Nobody is stuck with a bad draft. <b>Prices move on their own</b> —
+      beat the night's average and you get dearer next week, flop and you get cheaper — so this
+      week's bargain won't stay cheap. Nobody sets them.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Once a couple is eliminated</b> they're off the board — you can't pick them again.
@@ -1645,51 +1680,46 @@ function openCommish(week) {
 
 function drawCommish() {
   const week = state.commishWeek;
-  const roster = activeCastPlusEliminated(week);
   const wk = state.weeks.find(w => w.week === week) || {};
   const needCode = !!state.league?.commish_code;
 
+  // Scores are typed on the Ballroom list now, and salaries move by themselves.
+  // All that's left here are the two switches the app genuinely can't work out
+  // on its own, and most weeks nobody touches either.
   $("#commish").innerHTML = `
-    <h2>${weekLabel(week)} scores</h2>
-    <p class="hint">Type each couple's judges' total out of 30 — or out of 40 on a guest-judge week. Leave a box empty if they haven't danced. Tick whoever went home.</p>
+    <h2>${weekLabel(week)} settings</h2>
+    <p class="hint">Only needed on an odd week. Scores go straight on the Ballroom list, and salaries look after themselves — a couple who beats the night's average gets dearer next week, one who flops gets cheaper.</p>
     ${needCode ? `<label>Commissioner code<input id="ccode" autocomplete="off" placeholder="required for this league"></label>` : ""}
-    <label class="elim" style="display:flex;gap:6px;align-items:center;margin:12px 0 6px">
-      <input type="checkbox" id="noelim" ${wk.no_elimination ? "checked" : ""} style="width:auto">
-      <span style="font-weight:600;color:var(--ink)">No elimination this week</span>
+    <label class="elim" style="display:flex;gap:8px;align-items:flex-start;margin:14px 0">
+      <input type="checkbox" id="noelim" ${wk.no_elimination ? "checked" : ""} style="width:auto;margin-top:3px">
+      <span style="font-weight:600;color:var(--ink)">Nobody went home this week<br>
+        <small style="font-weight:400;color:var(--dim)">The elimination bonus just doesn't apply — nobody wins or loses it.</small></span>
     </label>
-    <label class="elim" style="display:flex;gap:6px;align-items:center;margin:0 0 12px">
-      <input type="checkbox" id="isfinale" ${wk.is_finale ? "checked" : ""} style="width:auto">
-      <span style="font-weight:600;color:var(--ink)">This is the last episode &mdash; swap the elimination call for &ldquo;who wins the Mirrorball&rdquo;</span>
+    <label class="elim" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 14px">
+      <input type="checkbox" id="isfinale" ${wk.is_finale ? "checked" : ""} style="width:auto;margin-top:3px">
+      <span style="font-weight:600;color:var(--ink)">This is the last episode<br>
+        <small style="font-weight:400;color:var(--dim)">Swaps the elimination call for &ldquo;who takes the Mirrorball&rdquo;.</small></span>
     </label>
-    <div id="scorerows">
-      ${roster.map(c => {
-        const r = state.scores.find(s => s.week === week && s.couple_id === c.id) || {};
-        return `<div class="scorerow">
-          ${medallionHtml(c)}
-          <span class="cnames" style="flex:1"><span class="celeb">${esc(c.celeb)}</span><span class="pro">${esc(c.pro)}</span></span>
-          <input type="number" min="0" max="40" step="1" data-score="${esc(c.id)}" value="${r.score ?? ""}" placeholder="—" inputmode="numeric">
-          <label class="elim"><input type="checkbox" data-elimbox="${esc(c.id)}" ${r.eliminated ? "checked" : ""}> home</label>
-        </div>`;
-      }).join("")}
-    </div>
-    <button class="big" id="savescores">Save the scores</button>
-    <p class="hint" id="commishmsg"></p>
-    <hr>
-    <h2>Salaries for week ${week + 1}</h2>
-    <p class="hint">Optional. Raise the ones who killed it, drop the ones who didn't — it keeps the cap interesting.</p>
-    <div class="row"><button class="ghost" id="suggest">✨ Suggest from week ${week}</button>
-      <button class="ghost" id="saveprices">Save salaries</button></div>
-    <div id="pricerows" style="margin-top:10px">
-      ${activeCastPlusEliminated(week + 1).map(c => `<div class="scorerow">
-        ${medallionHtml(c)}
-        <span class="cnames" style="flex:1"><span class="celeb">${esc(c.celeb)}</span></span>
-        <input type="number" min="1000" max="30000" step="100" data-price="${esc(c.id)}" value="${priceIn(c.id, week + 1)}" inputmode="numeric">
-      </div>`).join("")}
-    </div>`;
+    <button class="big" id="savescores">Save</button>
+    <p class="hint" id="commishmsg"></p>`;
 
-  $("#savescores").onclick = saveScores;
-  $("#suggest").onclick = suggestPrices;
-  $("#saveprices").onclick = savePrices;
+  $("#savescores").onclick = saveWeekSettings;
+}
+
+async function saveWeekSettings() {
+  if (!commishOk()) return;
+  const week = state.commishWeek;
+  $("#commishmsg").textContent = "Saving…";
+  try {
+    await api.saveWeek(week, {
+      no_elimination: $("#noelim").checked,
+      is_finale: $("#isfinale").checked,
+    });
+    await loadShow();
+    buildWeekStrip();
+    $("#commishmodal").hidden = true;
+    render();
+  } catch (e) { $("#commishmsg").textContent = "Couldn't save — check your signal."; console.error(e); }
 }
 
 function commishOk() {
@@ -1701,70 +1731,10 @@ function commishOk() {
   return false;
 }
 
-async function saveScores() {
-  if (!commishOk()) return;
-  const week = state.commishWeek;
-  const box = $("#commish");   // everything below is scoped to the modal
-  const rows = [];
-  box.querySelectorAll("[data-score]").forEach(inp => {
-    const id = inp.dataset.score;
-    const raw = inp.value.trim();
-    const elim = box.querySelector(`[data-elimbox="${CSS.escape(id)}"]`)?.checked || false;
-    let score = raw === "" ? null : Math.round(Number(raw));
-    if (score != null && (!Number.isFinite(score) || score < 0 || score > 40)) score = null;
-    if (raw === "" && !elim) return; // nothing to say about this couple yet
-    rows.push({ week, couple_id: id, score, eliminated: elim, entered_by: state.player.name });
-  });
-
-  $("#commishmsg").textContent = "Saving…";
-  try {
-    await api.saveScores(rows);
-    await api.saveWeek(week, {
-      no_elimination: $("#noelim").checked,
-      is_finale: $("#isfinale").checked,
-      results_in: rows.some(r => r.score != null),
-    });
-    await loadShow();
-    buildWeekStrip();
-    $("#commishmodal").hidden = true;
-    render();
-    if (rows.some(r => r.score === 30)) confetti();
-    $("#banner").textContent = `${weekLabel(week)} scores are in — standings updated.`;
-  } catch (e) { $("#commishmsg").textContent = "Couldn't save — check your signal."; console.error(e); }
-}
 
 // A couple who beat the room gets more expensive next week; a couple who
 // flopped gets cheaper. $250 a point either side of the night's average.
-function suggestPrices() {
-  const week = state.commishWeek;
-  const scored = activeCastPlusEliminated(week).map(c => ({ c, s: scoreFor(week, c.id) })).filter(x => x.s != null);
-  if (!scored.length) { $("#commishmsg").textContent = "Enter this week's scores first."; return; }
-  const avg = scored.reduce((t, x) => t + x.s, 0) / scored.length;
-  for (const { c, s } of scored) {
-    const inp = $("#commish").querySelector(`[data-price="${CSS.escape(c.id)}"]`);
-    if (!inp) continue;
-    const next = priceIn(c.id, week) + (s - avg) * 250;
-    inp.value = Math.max(4000, Math.min(18000, Math.round(next / 100) * 100));
-  }
-  $("#commishmsg").textContent = "Suggested — tweak anything, then Save salaries.";
-}
 
-async function savePrices() {
-  if (!commishOk()) return;
-  const week = state.commishWeek + 1;
-  const rows = [];
-  $("#commish").querySelectorAll("[data-price]").forEach(inp => {
-    const price = Math.round(Number(inp.value));
-    if (Number.isFinite(price) && price > 0) rows.push({ week, couple_id: inp.dataset.price, price });
-  });
-  $("#commishmsg").textContent = "Saving…";
-  try {
-    await api.savePrices(rows);
-    await loadShow();
-    render();
-    $("#commishmsg").textContent = `Week ${week} salaries saved.`;
-  } catch (e) { $("#commishmsg").textContent = "Couldn't save the salaries."; console.error(e); }
-}
 
 // ---------- join / leagues ----------
 
