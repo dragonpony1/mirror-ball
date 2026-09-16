@@ -546,6 +546,32 @@ select option { background: #2a0a3d; color: var(--ink); }
 .standings .pts { text-align: right; font-family: var(--display); font-size: 1.3rem; color: var(--gold); }
 .standings .me td { background: rgba(255,45,149,.13); }
 
+/* "is this a fair bet?" — a prop somebody wrote needs the league behind it
+   before any Mirror Balls move. Names as well as boxes, so you can see who
+   still owes a tick and go and prod them. */
+.prop.proposal { border-style: dashed; opacity: .96; }
+.okbox {
+  margin: 10px 0 0; padding: 10px 11px 11px; border-radius: 12px;
+  border: 1px solid rgba(0,229,208,.35); background: rgba(0,229,208,.07);
+}
+.okbox.done { border-color: rgba(102,187,106,.4); background: rgba(102,187,106,.08); }
+.okbox .vhead { color: var(--teal); }
+.okbox.done .vhead { color: var(--good); }
+.okcount { font-family: var(--display); font-size: 1rem; margin-left: 4px; }
+.oknames { display: flex; flex-wrap: wrap; gap: 5px; }
+.okname {
+  font-size: .73rem; color: var(--dim); padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--edge); background: rgba(255,255,255,.04); white-space: nowrap;
+}
+.okname.yes { color: var(--teal); border-color: rgba(0,229,208,.45); background: rgba(0,229,208,.1); }
+.okname.me { font-weight: 700; }
+.okname.me::after { content: " (you)"; font-weight: 400; opacity: .6; }
+.okbtn {
+  margin: 9px 0 0; width: 100%; padding: 10px; border-radius: 11px; font-size: .86rem;
+  border: 1px solid rgba(0,229,208,.5); background: rgba(0,229,208,.14); color: var(--teal);
+}
+.okbtn.on { background: rgba(0,229,208,.28); color: #06201d; font-weight: 700; }
+
 /* "what actually happened?" — the shared call on a human-judged prop.
    Deliberately unlike the betting buttons above it: during the show the bet
    row is disabled and this one is live, and nobody should confuse the two. */

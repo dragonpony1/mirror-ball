@@ -207,6 +207,17 @@ create table if not exists dwts_propbets (
   primary key (player_id, prop_id)
 );
 
+-- A prop somebody WROTE needs 5 of the league to tick it off as a fair bet
+-- before any Mirror Balls can move; otherwise you could write one you already
+-- know the answer to and collect. Full script is in supabase/propvotes.sql.
+create table if not exists dwts_propoks (
+  prop_id uuid not null references dwts_props(id) on delete cascade,
+  player_id uuid not null,
+  league_id uuid not null,
+  ok_at timestamptz default now(),
+  primary key (prop_id, player_id)
+);
+
 -- Everyone gets a say on what happened; the most-voted answer pays and a tie
 -- pays nobody. Full script with its policies is in supabase/propvotes.sql.
 create table if not exists dwts_propvotes (
@@ -221,6 +232,7 @@ create table if not exists dwts_propvotes (
 alter table dwts_props     enable row level security;
 alter table dwts_propbets  enable row level security;
 alter table dwts_propvotes enable row level security;
+alter table dwts_propoks   enable row level security;
 
 create policy "read props"   on dwts_props for select using (true);
 create policy "add props"    on dwts_props for insert with check (true);
@@ -231,6 +243,11 @@ create policy "read prop bets"   on dwts_propbets for select using (true);
 create policy "place prop bets"  on dwts_propbets for insert with check (true);
 create policy "change prop bets" on dwts_propbets for update using (true);
 create policy "pull prop bets"   on dwts_propbets for delete using (true);
+
+create policy "read prop oks"   on dwts_propoks for select using (true);
+create policy "back a prop"     on dwts_propoks for insert with check (true);
+create policy "change prop oks" on dwts_propoks for update using (true);
+create policy "drop prop oks"   on dwts_propoks for delete using (true);
 
 create policy "read prop votes"   on dwts_propvotes for select using (true);
 create policy "cast prop votes"   on dwts_propvotes for insert with check (true);

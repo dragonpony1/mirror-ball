@@ -151,7 +151,7 @@ export function saveWinnerPick(playerId, leagueId, coupleId) {
 // app's starter list. Bets are one row per player per prop.
 
 export function listProps(leagueId) {
-  return rest(`dwts_props?season=eq.${SEASON}&league_id=eq.${encodeURIComponent(leagueId)}&select=id,week,text,kind,pays,auto,answer,settled_by&order=created_at`);
+  return rest(`dwts_props?season=eq.${SEASON}&league_id=eq.${encodeURIComponent(leagueId)}&select=id,week,text,kind,pays,auto,answer,settled_by,created_at&order=created_at`);
 }
 
 export async function addProp(leagueId, week, fields) {
@@ -171,6 +171,37 @@ export function settleProp(propId, answer, by) {
 
 export function removeProp(propId) {
   return rest(`dwts_props?id=eq.${encodeURIComponent(propId)}`, { method: "DELETE" });
+}
+
+// ---------- is this a fair bet? ----------
+// A hand-written prop is a proposal until enough of the league ticks it off.
+// One row per player per prop. Same graceful degradation as the votes table:
+// if dwts_propoks doesn't exist yet, nothing is asked of anybody.
+let oksTableMissing = false;
+export const propOksAvailable = () => !oksTableMissing;
+
+export async function listPropOks(leagueId) {
+  if (oksTableMissing) return [];
+  try {
+    return await rest(`dwts_propoks?league_id=eq.${encodeURIComponent(leagueId)}&select=prop_id,player_id`);
+  } catch (e) {
+    if (isMissingTable(e)) { oksTableMissing = true; return []; }
+    throw e;
+  }
+}
+
+export function addPropOk(playerId, leagueId, propId) {
+  return rest("dwts_propoks", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ player_id: playerId, league_id: leagueId, prop_id: propId, ok_at: new Date().toISOString() }),
+  });
+}
+
+export function removePropOk(playerId, propId) {
+  return rest(`dwts_propoks?player_id=eq.${encodeURIComponent(playerId)}&prop_id=eq.${encodeURIComponent(propId)}`, {
+    method: "DELETE",
+  });
 }
 
 // ---------- calling the result together ----------

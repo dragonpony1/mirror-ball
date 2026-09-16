@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
-import { majority } from "../js/rules.js";
+import { majority, approval } from "../js/rules.js";
 
 let pass = 0, fail = 0;
 const is = (name, got, want) => {
@@ -171,6 +171,42 @@ is("tied at the TOP blocks it, even with a trailing third",
    majority(v("a", "a", "b", "b", "c")).answer, null);
 is("the tally reads biggest-first",          majority(v("a", "b", "b")).tally, [["b", 2], ["a", 1]]);
 is("the count is of voters, not answers",    majority(v("a", "b", "b")).votes, 3);
+
+console.log("");
+console.log("approval() -- a prop you wrote yourself is only a proposal");
+// The exploit: write a prop you already know the answer to, stake three balls,
+// collect. Five of the league have to call it a fair bet before anyone can.
+const A = (o) => approval({ needed: 5, playerCount: 13, from: "2026-09-16T00:00:00Z", ...o });
+const ticks = n => Array.from({ length: n }, (_, i) => ({ player_id: "p" + i }));
+const written = { auto: null, created_at: "2026-09-20T00:00:00Z" };
+
+is("a fresh hand-written prop is not live",   A({ prop: written, oks: ticks(0) }).ok, false);
+is("four ticks is still not enough",          A({ prop: written, oks: ticks(4) }).ok, false);
+is("...and it says how many short",           A({ prop: written, oks: ticks(4) }).short, 1);
+is("the fifth tick makes it a real bet",      A({ prop: written, oks: ticks(5) }).ok, true);
+is("more than five is fine",                  A({ prop: written, oks: ticks(9) }).ok, true);
+
+// Nothing to know in advance about who topped the night, so no vote needed.
+is("a prop that settles itself needs nobody",
+   A({ prop: { auto: "top", created_at: "2026-09-20T00:00:00Z" }, oks: ticks(0) }).ok, true);
+is("...and it isn't even asked for",
+   A({ prop: { auto: "top", created_at: "2026-09-20T00:00:00Z" }, oks: ticks(0) }).required, false);
+
+// The league is mid-week with real balls staked on props written before this
+// rule existed. Invalidating those would be worse than the exploit.
+is("props written before the rule are grandfathered",
+   A({ prop: { auto: null, created_at: "2026-09-11T18:33:12Z" }, oks: ticks(0) }).ok, true);
+
+// A four-person league could never reach five, and the prop would hang forever.
+// Only reachable if a stale api.js drops created_at from the select. Blocking
+// every real bet would be a far worse night than letting one through.
+is("a prop with no timestamp is let through, not blocked",
+   A({ prop: { auto: null }, oks: ticks(0) }).ok, true);
+
+is("the bar never exceeds the number of people",
+   A({ prop: written, oks: ticks(4), playerCount: 4 }).ok, true);
+is("an unloaded league falls back to the full bar",
+   A({ prop: written, oks: ticks(4), playerCount: 0 }).ok, false);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

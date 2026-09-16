@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "4.6";
+export const VERSION = "4.7";
 
 export const SEASON = 35;
 
@@ -29,3 +29,16 @@ export const DOLLARS_PER_BALL = 1000;
 export const MAX_BALLS_PER_PROP = 3;
 export const PAYS_YESNO = 10;   // points per ball on a yes/no prop
 export const PAYS_COUPLE = 25;  // points per ball on "pick a couple" — much harder
+
+// ---------- a prop you wrote yourself needs the league's OK ----------
+// Anyone can write a prop, and that was exploitable: write one you already know
+// the answer to, stake three balls, collect. A hand-written prop is now only a
+// proposal until this many people tick it off as a fair bet — nobody can bet on
+// it until then, the author included. Props that settle themselves from the
+// judges' scores are exempt; there's nothing to know in advance.
+export const PROP_OKS_NEEDED = 5;
+
+// Everything written before this moment is grandfathered. The league already had
+// real balls staked on six props for week 1; invalidating those mid-week would
+// have been worse than the exploit.
+export const PROP_OKS_FROM = "2026-09-16T03:14:00Z";

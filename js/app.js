@@ -1,7 +1,8 @@
 import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS,
-         DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE } from "./config.js";
+         DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE,
+         PROP_OKS_NEEDED, PROP_OKS_FROM } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
-import { majority } from "./rules.js";
+import { majority, approval } from "./rules.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -19,6 +20,7 @@ const state = {
   scores: [], prices: [], weeks: [],         // the show itself — shared by every league
   winnerpicks: [],                           // the finale's "who takes the Mirrorball" call
   props: [], propbets: [], propvotes: [],    // prop bets, stakes, and who called each result
+  propoks: [],                               // who has ticked a written prop off as a fair bet
   faces: [],                                 // a picture for each couple, added by whoever likes
   chat: [],
   showJoin: false,
@@ -92,7 +94,7 @@ async function loadShow() {
 
 async function loadLeague() {
   if (!state.league) return;
-  const [players, lineups, elims, winners, props, bets, votes] = await Promise.all([
+  const [players, lineups, elims, winners, props, bets, votes, oks] = await Promise.all([
     api.listPlayers(state.league.id),
     api.listAllLineups(state.league.id),
     api.listAllElimPicks(state.league.id),
@@ -100,6 +102,7 @@ async function loadLeague() {
     api.listProps(state.league.id),
     api.listPropBets(state.league.id),
     api.listPropVotes(state.league.id),
+    api.listPropOks(state.league.id),
   ]);
   api.listFaces().then(f => { state.faces = f || []; render(); }).catch(() => {});
   state.players = players || [];
@@ -109,6 +112,7 @@ async function loadLeague() {
   state.props = props || [];
   state.propbets = bets || [];
   state.propvotes = votes || [];
+  state.propoks = oks || [];
   render();
   refreshChat();
   maybeCarryForward();
@@ -291,7 +295,15 @@ function ballsEarned(playerId) {
 }
 
 const ballsStaked = playerId =>
-  state.propbets.filter(b => b.player_id === playerId).reduce((t, b) => t + (b.balls || 1), 0);
+  state.propbets.filter(b => b.player_id === playerId && okOn(b.prop_id))
+    .reduce((t, b) => t + (b.balls || 1), 0);
+
+// A prop the league never backed isn't a bet at all — it can't pay, so it must
+// not cost either. Anything staked on one is simply inert.
+const okOn = propId => {
+  const prop = state.props.find(p => p.id === propId);
+  return !prop || okState(prop).ok;
+};
 
 const ballsLeft = playerId => ballsEarned(playerId) - ballsStaked(playerId);
 
@@ -353,6 +365,14 @@ function autoWinners(prop) {
 }
 
 const votesOn = propId => state.propvotes.filter(v => v.prop_id === propId);
+const oksOn = propId => state.propoks.filter(o => o.prop_id === propId);
+
+// Whether the league has accepted a prop as a fair bet. With the table missing
+// nothing is required of anybody and every prop is live, exactly as before.
+const okState = prop => api.propOksAvailable()
+  ? approval({ prop, oks: oksOn(prop.id), playerCount: state.players.length,
+               needed: PROP_OKS_NEEDED, from: PROP_OKS_FROM })
+  : { required: false, bar: PROP_OKS_NEEDED, ticks: 0, ok: true, short: 0 };
 
 const myAnswerOn = prop => api.propVotesAvailable()
   ? (state.propvotes.find(v => v.prop_id === prop.id && v.player_id === state.player.id)?.answer ?? null)
@@ -360,6 +380,7 @@ const myAnswerOn = prop => api.propVotesAvailable()
 
 // null means "not settled yet".
 const winningAnswers = prop => {
+  if (!okState(prop).ok) return null;   // the league never accepted it as a bet
   if (prop.auto) return autoWinners(prop);
   // Votes win when there are any. Falling back to prop.answer keeps every prop
   // already called under the old one-person rule settled exactly as it was.
@@ -1107,6 +1128,43 @@ function teamCardHtml(playerId, week, isMe) {
 // to rule on, and only once the show has started — before that there's nothing
 // to call. Everyone votes; the tally is on screen so a disagreement is visible
 // rather than a silent overwrite of someone else's answer.
+// The "is this a fair bet?" strip. Matt asked for checkboxes AND names — the
+// names are the point: you can see at a glance who still owes a tick and go
+// prod them, the same reason the League tab shows who has a team.
+//
+// Every player in the league gets a box. Yours is the one that does anything.
+function okBox(prop) {
+  const appr = okState(prop);
+  if (!appr.required) return "";
+
+  const ticked = new Set(oksOn(prop.id).map(o => o.player_id));
+  const mine = ticked.has(state.player.id);
+  // While it's still short, everyone gets a box — the empty ones are the whole
+  // point, they tell you who to go and prod. Once it's backed, only the people
+  // who backed it, so a settled prop doesn't carry a wall of names forever.
+  const roster = appr.ok ? state.players.filter(p => ticked.has(p.id)) : [...state.players];
+  const names = roster
+    .sort((a, b) => (ticked.has(b.id) - ticked.has(a.id)) || a.name.localeCompare(b.name))
+    .map(p => `<span class="okname ${ticked.has(p.id) ? "yes" : ""} ${p.id === state.player.id ? "me" : ""}">
+        ${ticked.has(p.id) ? "☑" : "☐"} ${esc(p.name)}</span>`).join("");
+
+  // Once it's over the line it stays there. People bet on the strength of that,
+  // and a tick pulled afterwards would rug them.
+  const button = appr.ok
+    ? ""
+    : `<button type="button" class="okbtn ${mine ? "on" : ""}" data-${mine ? "unok" : "ok"}="${esc(prop.id)}">${
+        mine ? "✓ You're in — take it back" : "✓ That's a fair bet"}</button>`;
+
+  return `<div class="okbox ${appr.ok ? "done" : ""}">
+    <span class="vhead">${appr.ok
+      ? `The league backed this <b class="okcount">${appr.ticks}</b>`
+      : `Is this a fair bet? <b class="okcount">${appr.ticks} of ${appr.bar}</b>`}</span>
+    <div class="oknames">${names}</div>
+    ${appr.ok ? "" : `<p class="hint" style="margin:6px 0 0">Anyone can write a prop, so the league signs off before money moves. <b>${appr.short} more ${appr.short === 1 ? "tick" : "ticks"}</b> and betting opens.</p>`}
+    ${button}
+  </div>`;
+}
+
 // Why a human-judged prop still hasn't paid, in the breakdown popup.
 function unsettledWhy(prop) {
   const m = majority(votesOn(prop.id));
@@ -1117,6 +1175,7 @@ function unsettledWhy(prop) {
 function voteBox(prop, options) {
   if (prop.auto || !api.propVotesAvailable()) return "";
   if (!locked(prop.week)) return "";
+  if (!okState(prop).ok) return "";   // never became a bet, so there's nothing to call
   const votes = state.propvotes.filter(v => v.prop_id === prop.id);
   const m = majority(votes);
   const mine = votes.find(v => v.player_id === state.player.id);
@@ -1158,7 +1217,11 @@ function renderProps() {
     html += `<p class="empty">No prop bets for ${weekLabel(week)} yet.<br>Anyone can add them — they're the side game.</p>`;
   }
 
-  for (const prop of list) {
+  // Proposals first — they're the ones that need something from you, and at the
+  // bottom of a six-prop list nobody would ever see them.
+  const backed = p => okState(p).ok;
+  for (const prop of [...list].sort((a, b) => backed(a) - backed(b))) {
+    const appr = okState(prop);
     const bet = betOn(me, prop.id);
     const win = winningAnswers(prop);
     const pays = propPays(prop);
@@ -1167,7 +1230,7 @@ function renderProps() {
       ? activeCastPlusEliminated(week).map(c => ({ v: c.id, label: c.celeb }))
       : [{ v: "yes", label: "Yes" }, { v: "no", label: "No" }];
 
-    html += `<div class="prop ${win ? (bet ? (won ? "won" : "lost") : "done") : ""}">
+    html += `<div class="prop ${appr.ok ? "" : "proposal"} ${win ? (bet ? (won ? "won" : "lost") : "done") : ""}">
       <div class="proptop">
         <b>${esc(prop.text)}</b>
         <span class="pays">${pays}<small>a ball</small></span>
@@ -1175,7 +1238,7 @@ function renderProps() {
       ${prop.auto ? `<span class="tag auto">settles itself from the scores</span>` : ""}
       <div class="propopts">
         ${options.map(o => `<button type="button" class="opt ${bet?.answer === o.v ? "on" : ""} ${win && win.has(o.v) ? "right" : ""}"
-          data-prop="${esc(prop.id)}" data-answer="${esc(o.v)}" ${win || !open ? "disabled" : ""}>${esc(o.label)}</button>`).join("")}
+          data-prop="${esc(prop.id)}" data-answer="${esc(o.v)}" ${win || !open || !appr.ok ? "disabled" : ""}>${esc(o.label)}</button>`).join("")}
       </div>
       ${bet && !win && open ? `<div class="stake">
         <span>Balls on it:</span>
@@ -1189,8 +1252,9 @@ function renderProps() {
                      : `<span style="color:var(--bad)">You had ${esc(labelFor(prop, bet.answer))}. It was ${esc([...win].map(a => labelFor(prop, a)).join(" / "))}.</span>`)
                : `Answer: <b>${esc([...win].map(a => labelFor(prop, a)).join(" / "))}</b>. You sat this one out.`}
         ${prop.settled_by ? ` <span class="at">— called by ${esc(prop.settled_by)}</span>` : ""}</p>` : ""}
-      ${!win && !bet && open ? `<p class="hint" style="margin:6px 0 0">Costs 1 🪩 to enter. Raise your stake after.</p>` : ""}
-      ${!win && !open && !voteBox(prop, options) ? `<p class="hint" style="margin:6px 0 0">${locked(week) ? "Locked — waiting on the show." : "Opens when the week does."}</p>` : ""}
+      ${!win && !bet && open && appr.ok ? `<p class="hint" style="margin:6px 0 0">Costs 1 🪩 to enter. Raise your stake after.</p>` : ""}
+      ${!win && !open && appr.ok && !voteBox(prop, options) ? `<p class="hint" style="margin:6px 0 0">${locked(week) ? "Locked — waiting on the show." : "Opens when the week does."}</p>` : ""}
+      ${okBox(prop)}
       ${voteBox(prop, options)}
     </div>`;
   }
@@ -1207,12 +1271,32 @@ function renderProps() {
     b.onclick = () => restake(b.dataset.stake, Number(b.dataset.balls)));
   $("#content").querySelectorAll("[data-pull]").forEach(b =>
     b.onclick = () => pullBet(b.dataset.pull));
+  $("#content").querySelectorAll("[data-ok]").forEach(b =>
+    b.onclick = () => tickProp(b.dataset.ok, true));
+  $("#content").querySelectorAll("[data-unok]").forEach(b =>
+    b.onclick = () => tickProp(b.dataset.unok, false));
   $("#content").querySelectorAll("[data-vote]").forEach(b =>
     b.onclick = () => castVote(b.dataset.vote, b.dataset.vans));
   $("#content").querySelectorAll("[data-unvote]").forEach(b =>
     b.onclick = () => castVote(b.dataset.unvote, null));
   if ($("#addprop")) $("#addprop").onclick = openPropEditor;
   if ($("#settleprops")) $("#settleprops").onclick = openSettle;
+}
+
+// Back a written prop as a fair bet, or take your tick back. Optimistic, and
+// put back if the write fails.
+async function tickProp(propId, on) {
+  const me = state.player.id;
+  const before = state.propoks;
+  state.propoks = state.propoks.filter(o => !(o.prop_id === propId && o.player_id === me));
+  if (on) state.propoks.push({ prop_id: propId, player_id: me });
+  render();
+  try {
+    if (on) await api.addPropOk(me, state.league.id, propId);
+    else await api.removePropOk(me, propId);
+  } catch (e) {
+    state.propoks = before; render(); showError(e);
+  }
 }
 
 // Say what happened — or take it back by passing null. Drawn optimistically so
@@ -1236,6 +1320,12 @@ const labelFor = (prop, answer) =>
 
 async function placeBet(propId, answer) {
   const me = state.player.id;
+  const prop = state.props.find(p => p.id === propId);
+  const appr = prop && okState(prop);
+  if (appr && !appr.ok) {
+    $("#banner").textContent = `Nobody can bet on this yet — it needs ${appr.short} more ${appr.short === 1 ? "tick" : "ticks"} from the league.`;
+    return;
+  }
   const existing = betOn(me, propId);
   if (!existing && ballsLeft(me) < 1) {
     $("#banner").textContent = "No Mirror Balls left — you earn them by not spending your whole cap.";
@@ -1754,15 +1844,25 @@ async function createProp(text, kind, auto) {
     });
     state.props.push(row);
     $("#commishmodal").hidden = true;
+
+    // Writing it is your own tick — you obviously think it's fair. So the
+    // author needs four more people, not five.
+    const appr = okState(row);
+    if (appr.required) {
+      state.propoks.push({ prop_id: row.id, player_id: state.player.id });
+      api.addPropOk(state.player.id, state.league.id, row.id).catch(() => {});
+    }
     render();
-    $("#banner").textContent = `"${text}" is up for ${weekLabel(state.week)}.`;
+    $("#banner").textContent = appr.required
+      ? `"${text}" is up — ${appr.bar - 1} more ${appr.bar - 1 === 1 ? "person has" : "people have"} to call it a fair bet before anyone can bet on it.`
+      : `"${text}" is up for ${weekLabel(state.week)}.`;
   } catch (e) { $("#propmsg").textContent = "Couldn't add that one."; console.error(e); }
 }
 
 // Only the props a person has to rule on; the automatic ones never appear here.
 function openSettle() {
   const week = state.week;
-  const manual = propsIn(week).filter(p => !p.auto);
+  const manual = propsIn(week).filter(p => !p.auto && okState(p).ok);
   $("#commish").innerHTML = `
     <h2>Call the results — ${weekLabel(week)}</h2>
     <p class="hint">${api.propVotesAvailable()

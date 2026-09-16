@@ -26,6 +26,22 @@ explain them in plain language, no build tools, no frameworks.
 - The price you PAY is frozen on the lineup row, so repricing a later week can never
   push an already-saved lineup over the cap.
 
+## A prop you write yourself needs the league's OK
+
+Anyone can write a prop — that's the fun — but you could write one you already
+know the answer to, stake three balls and collect. So a hand-written prop is a
+proposal until `PROP_OKS_NEEDED` (5) people tick it as a fair bet. Until then
+NOBODY can bet on it, the author included, and it can never pay. The author's
+own tick goes on automatically when they write it, so they need four more.
+
+Props that settle themselves from the scores are exempt — there's no inside
+knowledge to have about who topped the night. Anything written before
+`PROP_OKS_FROM` is grandfathered; the league had real balls staked on six props
+when the rule landed and invalidating those would have been worse than the hole.
+
+A prop the league never backed is INERT, not lost: it can't pay, so it doesn't
+cost either. `ballsStaked()` skips stakes on unbacked props deliberately.
+
 ## Prop results are voted on, not declared
 
 Anyone can say what happened; the answer with the most votes pays. One vote is a
