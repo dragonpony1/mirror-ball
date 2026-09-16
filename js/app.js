@@ -1,6 +1,7 @@
 import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS,
          DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
+import { majority } from "./rules.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -17,7 +18,7 @@ const state = {
   players: [], lineups: [], elimpicks: [],   // this league
   scores: [], prices: [], weeks: [],         // the show itself — shared by every league
   winnerpicks: [],                           // the finale's "who takes the Mirrorball" call
-  props: [], propbets: [],                   // prop bets and what people staked on them
+  props: [], propbets: [], propvotes: [],    // prop bets, stakes, and who called each result
   faces: [],                                 // a picture for each couple, added by whoever likes
   chat: [],
   showJoin: false,
@@ -91,13 +92,14 @@ async function loadShow() {
 
 async function loadLeague() {
   if (!state.league) return;
-  const [players, lineups, elims, winners, props, bets] = await Promise.all([
+  const [players, lineups, elims, winners, props, bets, votes] = await Promise.all([
     api.listPlayers(state.league.id),
     api.listAllLineups(state.league.id),
     api.listAllElimPicks(state.league.id),
     api.listWinnerPicks(state.league.id),
     api.listProps(state.league.id),
     api.listPropBets(state.league.id),
+    api.listPropVotes(state.league.id),
   ]);
   api.listFaces().then(f => { state.faces = f || []; render(); }).catch(() => {});
   state.players = players || [];
@@ -106,6 +108,7 @@ async function loadLeague() {
   state.winnerpicks = winners || [];
   state.props = props || [];
   state.propbets = bets || [];
+  state.propvotes = votes || [];
   render();
   refreshChat();
   maybeCarryForward();
@@ -349,9 +352,21 @@ function autoWinners(prop) {
   return null;
 }
 
+const votesOn = propId => state.propvotes.filter(v => v.prop_id === propId);
+
+const myAnswerOn = prop => api.propVotesAvailable()
+  ? (state.propvotes.find(v => v.prop_id === prop.id && v.player_id === state.player.id)?.answer ?? null)
+  : prop.answer;
+
 // null means "not settled yet".
-const winningAnswers = prop =>
-  prop.auto ? autoWinners(prop) : (prop.answer ? new Set([prop.answer]) : null);
+const winningAnswers = prop => {
+  if (prop.auto) return autoWinners(prop);
+  // Votes win when there are any. Falling back to prop.answer keeps every prop
+  // already called under the old one-person rule settled exactly as it was.
+  const m = majority(votesOn(prop.id));
+  if (m.votes) return m.answer ? new Set([m.answer]) : null;
+  return prop.answer ? new Set([prop.answer]) : null;
+};
 
 const propSettled = prop => !!winningAnswers(prop);
 
@@ -1088,6 +1103,45 @@ function teamCardHtml(playerId, week, isMe) {
 
 // ---------- props ----------
 
+// The "what actually happened?" block under a prop. Only for props a human has
+// to rule on, and only once the show has started — before that there's nothing
+// to call. Everyone votes; the tally is on screen so a disagreement is visible
+// rather than a silent overwrite of someone else's answer.
+// Why a human-judged prop still hasn't paid, in the breakdown popup.
+function unsettledWhy(prop) {
+  const m = majority(votesOn(prop.id));
+  if (m.tied) return "votes are tied — nothing pays yet";
+  return "nobody has called it yet";
+}
+
+function voteBox(prop, options) {
+  if (prop.auto || !api.propVotesAvailable()) return "";
+  if (!locked(prop.week)) return "";
+  const votes = state.propvotes.filter(v => v.prop_id === prop.id);
+  const m = majority(votes);
+  const mine = votes.find(v => v.player_id === state.player.id);
+  const nameOf = id => state.players.find(p => p.id === id)?.name || "someone";
+
+  const split = m.tally.map(([a, n]) =>
+    `<span class="vtally ${m.answer === a ? "lead" : ""}">${esc(labelFor(prop, a))} <b>${n}</b></span>`).join("");
+
+  let note;
+  if (!m.votes) note = "Nobody's called it yet. Say what happened and it counts.";
+  else if (m.tied) note = "It's a tie, so nothing pays yet — one more vote settles it.";
+  else if (m.votes === 1) note = `Only ${esc(nameOf(votes[0].player_id))} has called it. Agree or disagree and the majority wins.`;
+  else note = `${m.tally[0][1]} of ${m.votes} say ${esc(labelFor(prop, m.answer))}.`;
+
+  return `<div class="votebox">
+    <span class="vhead">What actually happened?</span>
+    <div class="propopts">
+      ${options.map(o => `<button type="button" class="opt vote ${mine?.answer === o.v ? "on" : ""}"
+        data-vote="${esc(prop.id)}" data-vans="${esc(o.v)}">${esc(o.label)}</button>`).join("")}
+    </div>
+    ${split ? `<div class="vsplit">${split}</div>` : ""}
+    <p class="hint" style="margin:5px 0 0">${note}${mine ? ` <button type="button" class="linkbtn" data-unvote="${esc(prop.id)}">take my vote back</button>` : ""}</p>
+  </div>`;
+}
+
 function renderProps() {
   const week = state.week, me = state.player.id;
   const list = propsIn(week);
@@ -1136,13 +1190,14 @@ function renderProps() {
                : `Answer: <b>${esc([...win].map(a => labelFor(prop, a)).join(" / "))}</b>. You sat this one out.`}
         ${prop.settled_by ? ` <span class="at">— called by ${esc(prop.settled_by)}</span>` : ""}</p>` : ""}
       ${!win && !bet && open ? `<p class="hint" style="margin:6px 0 0">Costs 1 🪩 to enter. Raise your stake after.</p>` : ""}
-      ${!win && !open ? `<p class="hint" style="margin:6px 0 0">${locked(week) ? "Locked — waiting on the show." : "Opens when the week does."}</p>` : ""}
+      ${!win && !open && !voteBox(prop, options) ? `<p class="hint" style="margin:6px 0 0">${locked(week) ? "Locked — waiting on the show." : "Opens when the week does."}</p>` : ""}
+      ${voteBox(prop, options)}
     </div>`;
   }
 
   html += `<div class="row" style="margin-top:16px">
     <button class="ghost" id="addprop">＋ Add a prop bet</button>
-    ${list.some(p => !p.auto && !p.answer) && locked(week) ? `<button class="ghost" id="settleprops">Call the results</button>` : ""}
+    ${list.some(p => !p.auto) && locked(week) ? `<button class="ghost" id="settleprops">${api.propVotesAvailable() ? "Tidy up props" : "Call the results"}</button>` : ""}
   </div>`;
 
   $("#content").innerHTML = html;
@@ -1152,8 +1207,28 @@ function renderProps() {
     b.onclick = () => restake(b.dataset.stake, Number(b.dataset.balls)));
   $("#content").querySelectorAll("[data-pull]").forEach(b =>
     b.onclick = () => pullBet(b.dataset.pull));
+  $("#content").querySelectorAll("[data-vote]").forEach(b =>
+    b.onclick = () => castVote(b.dataset.vote, b.dataset.vans));
+  $("#content").querySelectorAll("[data-unvote]").forEach(b =>
+    b.onclick = () => castVote(b.dataset.unvote, null));
   if ($("#addprop")) $("#addprop").onclick = openPropEditor;
   if ($("#settleprops")) $("#settleprops").onclick = openSettle;
+}
+
+// Say what happened — or take it back by passing null. Drawn optimistically so
+// it feels instant while the show is on, and put back if the write fails.
+async function castVote(propId, answer) {
+  const me = state.player.id;
+  const before = state.propvotes;
+  state.propvotes = state.propvotes.filter(v => !(v.prop_id === propId && v.player_id === me));
+  if (answer) state.propvotes.push({ prop_id: propId, player_id: me, answer });
+  render();
+  try {
+    if (answer) await api.castPropVote(me, state.league.id, propId, answer);
+    else await api.clearPropVote(me, propId);
+  } catch (e) {
+    state.propvotes = before; render(); showError(e);
+  }
 }
 
 const labelFor = (prop, answer) =>
@@ -1527,7 +1602,7 @@ function openRecap(pid) {
       rows += line(
         `🪩 ${b.balls} on “${esc(labelFor(prop, b.answer))}”<br><small>${esc(prop.text)}</small>`,
         win ? (got ? "+" + got : 0) : "—",
-        win ? "" : (prop.auto ? "waiting on the full card" : "nobody has called it yet"));
+        win ? "" : (prop.auto ? "waiting on the full card" : unsettledWhy(prop)));
     }
     if (rows) body += `<h2>Prop bets · ${propPts}</h2>` + rows;
 
@@ -1690,7 +1765,9 @@ function openSettle() {
   const manual = propsIn(week).filter(p => !p.auto);
   $("#commish").innerHTML = `
     <h2>Call the results — ${weekLabel(week)}</h2>
-    <p class="hint">Anyone can settle these. Your name goes on it, and it can be changed if you get it wrong.</p>
+    <p class="hint">${api.propVotesAvailable()
+      ? "Everyone gets a say — tap what happened and the answer with the most votes pays. You can change your mind."
+      : "Anyone can settle these. Your name goes on it, and it can be changed if you get it wrong."}</p>
     ${manual.map(p => {
       const opts = p.kind === "couple"
         ? activeCastPlusEliminated(week).map(c => ({ v: c.id, label: c.celeb }))
@@ -1698,7 +1775,7 @@ function openSettle() {
       return `<div class="prop" style="margin-bottom:10px">
         <b>${esc(p.text)}</b>
         <div class="propopts" style="margin-top:7px">
-          ${opts.map(o => `<button type="button" class="opt ${p.answer === o.v ? "on" : ""}"
+          ${opts.map(o => `<button type="button" class="opt ${myAnswerOn(p) === o.v ? "on" : ""}"
             data-settle="${esc(p.id)}" data-ans="${esc(o.v)}">${esc(o.label)}</button>`).join("")}
         </div>
         <p class="hint" style="margin:6px 0 0"><button type="button" class="linkbtn" data-killprop="${esc(p.id)}">remove this prop</button></p>
@@ -1709,6 +1786,7 @@ function openSettle() {
 
   $("#commish").querySelectorAll("[data-settle]").forEach(b => b.onclick = async () => {
     const prop = state.props.find(p => p.id === b.dataset.settle);
+    if (api.propVotesAvailable()) { await castVote(prop.id, b.dataset.ans); openSettle(); return; }
     const prev = prop.answer;
     prop.answer = b.dataset.ans; prop.settled_by = state.player.name;
     openSettle();

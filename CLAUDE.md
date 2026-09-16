@@ -12,6 +12,8 @@ explain them in plain language, no build tools, no frameworks.
 - `js/cast.js` — the 16 season-35 couples, their opening salaries and colors, plus the week/lock math.
 - `js/api.js` — all data access. Plain `fetch` against Supabase REST, no SDK.
 - `js/app.js` — state and rendering for the four views, plus the commissioner screen.
+- `js/rules.js` — pure rules with no DOM or network, so the tests can call the real
+  thing instead of a copy of it. `majority()` (who called a prop right) lives here.
 - `css/style.css` — the ballroom look. Velvet purple, gold trim, hot pink and teal.
 - `supabase/schema.sql` — every table, all prefixed `dwts_`.
 
@@ -23,6 +25,18 @@ explain them in plain language, no build tools, no frameworks.
 - A couple eliminated in an earlier week is off the board for good.
 - The price you PAY is frozen on the lineup row, so repricing a later week can never
   push an already-saved lineup over the cap.
+
+## Prop results are voted on, not declared
+
+Anyone can say what happened; the answer with the most votes pays. One vote is a
+majority of one so the show keeps moving, but a second person disagreeing makes
+it a tie, and a tie pays NOBODY until someone breaks it. That's the guard Matt
+asked for: nobody can be wrong on their own.
+
+Votes live in `dwts_propvotes`. The app checks for the table at load and hides
+voting entirely if it 404s, falling back to the old `dwts_props.answer` field —
+so props settled before voting existed stay settled. If voting ever silently
+disappears, that's the fallback firing, not a bug in the UI: check the table.
 
 ## Things that will bite you
 - **Judges' scores are global**, shared by every league — they're facts about the show.

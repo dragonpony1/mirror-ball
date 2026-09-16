@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
+import { majority } from "../js/rules.js";
 
 let pass = 0, fail = 0;
 const is = (name, got, want) => {
@@ -121,7 +122,7 @@ console.log("");
 console.log("every source file still parses");
 // A stray newline inside a quoted string, or a bad escape, takes the whole app
 // down to a blank screen with one console error. Cheap to catch here.
-for (const f of ["js/app.js", "js/api.js", "js/cast.js", "js/config.js"]) {
+for (const f of ["js/app.js", "js/api.js", "js/cast.js", "js/config.js", "js/rules.js"]) {
   let ok = true, why = "";
   try { new vm.SourceTextModule(readFileSync(new URL("../" + f, import.meta.url), "utf8")); }
   catch (e) { ok = false; why = e.message; }
@@ -151,6 +152,25 @@ is("half the card scored is not finished", complete([21,20,17,16,null,null,null,
 is("every couple scored is finished",      complete([21,20,17,16,15,12,10,24]), true);
 is("an empty card is not finished",        complete([]), false);
 is("one straggler still blocks it",        complete([21,20,17,16,15,12,10,null]), false);
+
+console.log("");
+console.log("majority() -- nobody can call a prop wrong on their own");
+// Matt: "allow multiple people to enter prop results and take the majority in
+// case one person is off." A tie must NOT pay, or the first two voters to
+// disagree would hand the win to whoever the sort happened to put first.
+const v = (...answers) => answers.map((a, i) => ({ player_id: "p" + i, answer: a }));
+
+is("nobody has voted -> nothing pays",       majority(v()).answer, null);
+is("one voice is a majority of one",         majority(v("yes")).answer, "yes");
+is("two disagreeing is a tie, so no result", majority(v("yes", "no")).answer, null);
+is("...and the tie is flagged",              majority(v("yes", "no")).tied, true);
+is("a third breaks the tie",                 majority(v("yes", "no", "no")).answer, "no");
+is("the odd one out is outvoted",            majority(v("shum", "shum", "dewan")).answer, "shum");
+is("a clear lead among three answers",       majority(v("a", "b", "b", "c")).answer, "b");
+is("tied at the TOP blocks it, even with a trailing third",
+   majority(v("a", "a", "b", "b", "c")).answer, null);
+is("the tally reads biggest-first",          majority(v("a", "b", "b")).tally, [["b", 2], ["a", 1]]);
+is("the count is of voters, not answers",    majority(v("a", "b", "b")).votes, 3);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

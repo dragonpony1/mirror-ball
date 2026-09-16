@@ -173,6 +173,49 @@ export function removeProp(propId) {
   return rest(`dwts_props?id=eq.${encodeURIComponent(propId)}`, { method: "DELETE" });
 }
 
+// ---------- calling the result together ----------
+// Anyone can say what happened; the answer with the most votes is the one that
+// pays. One vote is a majority of one, so the show keeps moving — but the
+// moment someone disagrees it's a tie again and the prop re-opens until a
+// third person breaks it. That's Matt's "in case one person is off".
+//
+// The table is newer than the app, so every call here degrades quietly: if
+// dwts_propvotes hasn't been created yet, voting is simply absent and props
+// settle the old way (whoever ruled on it last). Nothing throws at the user.
+let votesTableMissing = false;
+export const propVotesAvailable = () => !votesTableMissing;
+
+export async function listPropVotes(leagueId) {
+  if (votesTableMissing) return [];
+  try {
+    return await rest(`dwts_propvotes?league_id=eq.${encodeURIComponent(leagueId)}&select=prop_id,player_id,answer`);
+  } catch (e) {
+    if (isMissingTable(e)) { votesTableMissing = true; return []; }
+    throw e;
+  }
+}
+
+export async function castPropVote(playerId, leagueId, propId, answer) {
+  return rest("dwts_propvotes", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({
+      player_id: playerId, league_id: leagueId, prop_id: propId,
+      answer, voted_at: new Date().toISOString(),
+    }),
+  });
+}
+
+export function clearPropVote(playerId, propId) {
+  return rest(`dwts_propvotes?player_id=eq.${encodeURIComponent(playerId)}&prop_id=eq.${encodeURIComponent(propId)}`, {
+    method: "DELETE",
+  });
+}
+
+// PostgREST answers "no such table" with 404 and PGRST205. A schema cache that
+// hasn't been reloaded yet looks exactly the same, which is what we want.
+const isMissingTable = e => /Supabase 404/.test(e?.message || "") || /PGRST205/.test(e?.message || "");
+
 export function listPropBets(leagueId) {
   return rest(`dwts_propbets?league_id=eq.${encodeURIComponent(leagueId)}&select=player_id,prop_id,answer,balls`);
 }

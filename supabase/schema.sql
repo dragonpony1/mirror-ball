@@ -177,3 +177,62 @@ create policy "drop faces"   on dwts_faces for delete using (true);
 
 create policy "read chat"  on dwts_messages for select using (true);
 create policy "write chat" on dwts_messages for insert with check (true);
+
+-- ---------- prop bets ----------
+-- These three were created live during season 35 rather than from this file.
+-- Reconstructed here so a fresh project comes up whole; `if not exists` makes
+-- re-running it against the real project a no-op.
+
+create table if not exists dwts_props (
+  id uuid primary key default gen_random_uuid(),
+  league_id uuid not null references dwts_leagues(id) on delete cascade,
+  season int not null,
+  week int not null,
+  text text not null,
+  kind text not null,                     -- 'yesno' or 'couple'
+  pays int not null,
+  auto text,                              -- settles itself from the scores; see autoWinners()
+  answer text,                            -- the old one-person call, kept for props settled before voting
+  settled_by text,
+  created_at timestamptz default now()
+);
+
+create table if not exists dwts_propbets (
+  player_id uuid not null,
+  prop_id uuid not null references dwts_props(id) on delete cascade,
+  league_id uuid not null,
+  answer text not null,
+  balls int not null default 1,
+  updated_at timestamptz default now(),
+  primary key (player_id, prop_id)
+);
+
+-- Everyone gets a say on what happened; the most-voted answer pays and a tie
+-- pays nobody. Full script with its policies is in supabase/propvotes.sql.
+create table if not exists dwts_propvotes (
+  prop_id uuid not null references dwts_props(id) on delete cascade,
+  player_id uuid not null,
+  league_id uuid not null,
+  answer text not null,
+  voted_at timestamptz default now(),
+  primary key (prop_id, player_id)
+);
+
+alter table dwts_props     enable row level security;
+alter table dwts_propbets  enable row level security;
+alter table dwts_propvotes enable row level security;
+
+create policy "read props"   on dwts_props for select using (true);
+create policy "add props"    on dwts_props for insert with check (true);
+create policy "change props" on dwts_props for update using (true);
+create policy "drop props"   on dwts_props for delete using (true);
+
+create policy "read prop bets"   on dwts_propbets for select using (true);
+create policy "place prop bets"  on dwts_propbets for insert with check (true);
+create policy "change prop bets" on dwts_propbets for update using (true);
+create policy "pull prop bets"   on dwts_propbets for delete using (true);
+
+create policy "read prop votes"   on dwts_propvotes for select using (true);
+create policy "cast prop votes"   on dwts_propvotes for insert with check (true);
+create policy "change prop votes" on dwts_propvotes for update using (true);
+create policy "drop prop votes"   on dwts_propvotes for delete using (true);

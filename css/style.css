@@ -546,6 +546,28 @@ select option { background: #2a0a3d; color: var(--ink); }
 .standings .pts { text-align: right; font-family: var(--display); font-size: 1.3rem; color: var(--gold); }
 .standings .me td { background: rgba(255,45,149,.13); }
 
+/* "what actually happened?" — the shared call on a human-judged prop.
+   Deliberately unlike the betting buttons above it: during the show the bet
+   row is disabled and this one is live, and nobody should confuse the two. */
+.votebox {
+  margin: 10px 0 0; padding: 10px 11px 9px; border-radius: 12px;
+  border: 1px dashed rgba(255,210,74,.38); background: rgba(255,210,74,.06);
+}
+.vhead {
+  display: block; font-size: .7rem; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--gold); margin-bottom: 7px;
+}
+.votebox .propopts { margin: 0; }
+.opt.vote { border-style: dashed; }
+.opt.vote.on { border-style: solid; }
+.vsplit { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.vtally {
+  font-size: .72rem; color: var(--dim); padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--edge); background: rgba(255,255,255,.04);
+}
+.vtally.lead { color: var(--gold); border-color: rgba(255,210,74,.5); }
+.vtally b { font-family: var(--display); font-size: .95rem; margin-left: 2px; }
+
 /* the itemised breakdown in the tap-a-name popup */
 .recapline {
   /* MUST wrap: the note is a full-width flex item, and in a non-wrapping row it
