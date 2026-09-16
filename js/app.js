@@ -1,6 +1,8 @@
 import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS,
          DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE,
-         PROP_OKS_NEEDED, PROP_OKS_FROM } from "./config.js";
+         PROP_OKS_NEEDED, PROP_OKS_FROM,
+         CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP, CATCHUP_POINTS,
+         CATCHUP_OPENS, CATCHUP_CLOSES } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
 import { majority, approval, propResult } from "./rules.js";
 import * as api from "./api.js";
@@ -139,7 +141,57 @@ const elimsIn = week => state.scores.filter(s => s.week === week && s.eliminated
 const isOut = (coupleId, week) => state.scores.some(s => s.couple_id === coupleId && s.eliminated && s.week < week);
 const activeCast = week => CAST.filter(c => !isOut(c.id, week));
 const weekHasResults = week => state.scores.some(s => s.week === week && s.score != null);
+
+// ---------- the premiere catch-up ----------
+//
+// Someone who joined on Wednesday of premiere week missed Tuesday, and Tuesday
+// can't be re-run. Rather than either locking them out of week 1 or handing
+// them the whole board after the men's scores were already posted, they play
+// the half that's still to come: see config.js for the rule and the arithmetic
+// behind the numbers.
+//
+// It's derived from the player row's `created_at` and never stored, exactly
+// like the Mirror Balls balance — so it can't drift out of step with who
+// actually joined when, and it can't be granted by hand.
+function isCatchUp(playerId) {
+  const id = playerId || state.player?.id;
+  const p = id ? state.players.find(x => x.id === id) : null;
+  if (!p || !p.created_at) return false;
+  const t = Date.parse(p.created_at);
+  return t >= CATCHUP_OPENS && t < CATCHUP_CLOSES;
+}
+const isCatchUpWeek = (week, playerId) => week === CATCHUP_WEEK && isCatchUp(playerId);
+// Still able to act on it. `isCatchUpWeek` stays true forever so their week-1
+// card keeps rendering correctly; this one shuts when the show does.
+const catchUpOpen = (week, playerId) =>
+  isCatchUpWeek(week, playerId) && Date.now() < CATCHUP_CLOSES;
+
+// The couples a player may pick from. Only ever narrower than the ballroom,
+// and only for a catch-up player in week 1.
+const boardFor = (week, playerId) =>
+  isCatchUpWeek(week, playerId)
+    ? activeCast(week).filter(c => c.night === CATCHUP_NIGHT)
+    : activeCast(week);
+
+// Same idea for "who goes home" — they get Wednesday's call, not Tuesday's.
+const elimSlotsFor = (week, playerId) =>
+  isCatchUpWeek(week, playerId)
+    ? elimSlots(week).filter(s => s.night === CATCHUP_NIGHT)
+    : elimSlots(week);
 const noElimination = week => !!state.weeks.find(w => w.week === week)?.no_elimination;
+
+// Has the elimination this pick was about actually happened? Not the same as
+// "the week has scores" — premiere week put two nights on one scorecard, so
+// Tuesday's call was settled while Wednesday's couples hadn't taken the floor.
+// Calling a Wednesday pick wrong before the women dance is simply false.
+function elimSettled(week, coupleId) {
+  if (noElimination(week)) return true;
+  const gone = elimsIn(week);
+  if (!gone.length) return false;
+  if (elimSlots(week).length < 2) return true;
+  const night = byId(coupleId)?.night;
+  return gone.some(id => byId(id)?.night === night);
+}
 
 // Prices move on their own. Nobody should have to sit and retype sixteen
 // salaries every week — the interesting part is that your cheap pick got dear,
@@ -214,7 +266,8 @@ const isFinale = week => !!state.weeks.find(w => w.week === week)?.is_finale;
 // you always leave at least two couples unpicked, down to a floor of two.
 const BENCH = 2;
 
-function rosterFor(week) {
+function rosterFor(week, playerId) {
+  if (isCatchUpWeek(week, playerId)) return CATCHUP_ROSTER;
   const alive = activeCast(week).length;
   if (!alive) return baseRoster();                 // nothing has aired yet
   return Math.max(2, Math.min(baseRoster(), alive - BENCH));
@@ -246,13 +299,14 @@ function weekComplete(week) {
 }
 const weekOpen = week =>
   !locked(week) && weekPlayable(week) && (week === 1 || weekComplete(week - 1));
-const pickable = week => weekOpen(week) && week === currentWeek();
+const pickable = week => (weekOpen(week) || catchUpOpen(week)) && week === currentWeek();
 const stillStanding = () => CAST.filter(c => !state.scores.some(s => s.couple_id === c.id && s.eliminated));
 
 // The cap shrinks with the team, or it stops biting — $50,000 buys the three
 // best dancers outright. Never let it fall below what the cheapest legal team
 // costs, so a week can't become impossible after a round of repricing.
-function capFor(week) {
+function capFor(week, playerId) {
+  if (isCatchUpWeek(week, playerId)) return CATCHUP_CAP;
   const roster = rosterFor(week);
   const perSlot = baseCap() / baseRoster();
   const scaled = roster === baseRoster() ? baseCap() : Math.round(perSlot * roster / 500) * 500;
@@ -275,17 +329,17 @@ const betOn = (playerId, propId) => state.propbets.find(b => b.player_id === pla
 // team. This is what stops "pick nobody and bank fifty" WITHOUT demanding a
 // full team — which matters, because requiring one meant dropping a couple to
 // swap them blew up your balance mid-edit.
-function maxBallsFor(week) {
-  const cheapest = activeCast(week).map(c => priceIn(c.id, week)).sort((a, b) => a - b)
-    .slice(0, rosterFor(week)).reduce((t, p) => t + p, 0);
-  return Math.floor(Math.max(0, capFor(week) - cheapest) / DOLLARS_PER_BALL);
+function maxBallsFor(week, playerId) {
+  const cheapest = boardFor(week, playerId).map(c => priceIn(c.id, week)).sort((a, b) => a - b)
+    .slice(0, rosterFor(week, playerId)).reduce((t, p) => t + p, 0);
+  return Math.floor(Math.max(0, capFor(week, playerId) - cheapest) / DOLLARS_PER_BALL);
 }
 
 function ballsFromWeek(playerId, week) {
   const mine = lineupOf(playerId, week);
   if (!mine.length) return 0;                  // sit a week out entirely, bank nothing
   const spent = mine.reduce((t, l) => t + l.price, 0);
-  return Math.min(Math.floor(Math.max(0, capFor(week) - spent) / DOLLARS_PER_BALL), maxBallsFor(week));
+  return Math.min(Math.floor(Math.max(0, capFor(week, playerId) - spent) / DOLLARS_PER_BALL), maxBallsFor(week, playerId));
 }
 
 function ballsEarned(playerId) {
@@ -316,7 +370,7 @@ function ballsLeftIf(playerId, week, spentThen, countThen) {
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
     if (w !== week) { earned += ballsFromWeek(playerId, w); continue; }
     if (!countThen) continue;
-    earned += Math.min(Math.floor(Math.max(0, capFor(w) - spentThen) / DOLLARS_PER_BALL), maxBallsFor(w));
+    earned += Math.min(Math.floor(Math.max(0, capFor(w, playerId) - spentThen) / DOLLARS_PER_BALL), maxBallsFor(w, playerId));
   }
   return earned - ballsStaked(playerId);
 }
@@ -456,6 +510,10 @@ function weekPoints(playerId, week) {
     const champ = champion(), pick = winnerPickOf(playerId);
     if (champ && pick && pick.couple_id === champ.id) pts += winnerBonus();
   }
+  // Standing in for the night they joined too late to play. Computed here
+  // rather than banked as a score row, so nobody else's total moves.
+  if (isCatchUpWeek(week, playerId)) pts += CATCHUP_POINTS;
+
   // Each correct call pays the bonus on its own.
   if (!noElimination(week)) {
     const gone = elimsIn(week);
@@ -545,11 +603,11 @@ function untilText(date) {
 // in a list. Empty means you're done.
 function stillToDo(week, playerId) {
   const me = playerId || state.player.id, todo = [];
-  if (lineupOf(me, week).length < rosterFor(week)) todo.push("your team");
+  if (lineupOf(me, week).length < rosterFor(week, me)) todo.push("your team");
   if (isFinale(week)) {
     if (!winnerPickOf(me)) todo.push("the winner call");
   } else if (!noElimination(week)) {
-    const slots = elimSlots(week);
+    const slots = elimSlotsFor(week, me);
     const missing = slots.filter(s => !elimPickAt(me, week, s.slot));
     if (missing.length && missing.length === slots.length && slots.length > 1) {
       todo.push("both elimination calls");
@@ -575,7 +633,7 @@ function weeksPlayed() {
   if (!state.player) return 0;
   let n = 0;
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
-    if (lineupOf(state.player.id, w).length >= rosterFor(w)) n++;
+    if (lineupOf(state.player.id, w).length >= rosterFor(w, state.player.id)) n++;
   }
   return n;
 }
@@ -692,7 +750,8 @@ function render() {
 // ---------- my lineup ----------
 
 function renderLineup() {
-  const week = state.week, isLocked = locked(week);
+  const week = state.week, isLocked = locked(week) && !catchUpOpen(week);
+  const catchUp = catchUpOpen(week);
   const mine = lineupOf(state.player.id, week);
   const roster = rosterFor(week), weekCap = capFor(week);
   const spent = mine.reduce((t, l) => t + l.price, 0);
@@ -712,7 +771,8 @@ function renderLineup() {
   const dead = mine.filter(l => isOut(l.couple_id, week));
   const overSize = Math.max(0, mine.length - roster);
 
-  const when = lockAt(week).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const deadline = isCatchUpWeek(week) ? new Date(CATCHUP_CLOSES) : lockAt(week);
+  const when = deadline.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   let html = "";
 
@@ -777,6 +837,21 @@ function renderLineup() {
     html += `<p class="hint"><span class="pill locked">Locked</span> Lineups closed ${esc(when)}.</p>`;
     html += lockedLineupHtml(week);
   } else {
+    // Joining a night late needs explaining once, in full, at the top. Nobody
+    // should have to work out from a half-empty board why the men aren't there.
+    if (catchUp) {
+      html += `<div class="notopen catchup">
+        <b>You're in — here's how tonight works</b>
+        <span>Tuesday's men already danced, so they're off the board and you're spotted
+          <b>${CATCHUP_POINTS} points</b> for that night. Tonight is yours: pick
+          <b>${CATCHUP_ROSTER} of Wednesday's women</b> with <b>${money(CATCHUP_CAP)}</b>,
+          and call which one goes home.</span>
+        <span style="margin-top:6px">Half a team, half the money, and ${CATCHUP_POINTS} for the night
+          you missed — the rest of the league averaged 45 on Tuesday, and nobody picked
+          more than three women.</span>
+      </div>`;
+    }
+
     // What's still affordable, and whether the team can even be finished —
     // it's easy to spend big early and strand yourself with slots you can't fill.
     const slotsLeft = roster - mine.length;
@@ -805,7 +880,7 @@ function renderLineup() {
     // lock time is the one thing they'll want to check again later.
     if (full && !overSize && !dead.length) {
       const todo = stillToDo(week);
-      const until = untilText(lockAt(week));
+      const until = untilText(deadline);
       html += `<div class="teamin ${todo.length ? "partial" : ""}">
         <b>${todo.length ? `Team in — still need ${listOut(todo)}` : `✓ You're all set for ${weekLabel(week)}`}</b>
         <span>${mine.length} couple${mine.length === 1 ? "" : "s"} · ${money(spent)} spent${
@@ -815,7 +890,7 @@ function renderLineup() {
     }
 
     // Once the ballroom empties the rules quietly change, so say it out loud.
-    if (roster < baseRoster()) {
+    if (roster < baseRoster() && !catchUp) {
       html += `<p class="hint">Only ${activeCast(week).length} couples are left, so teams are down to <b>${roster}</b> this week and the cap is <b>${money(weekCap)}</b>. You always leave at least two on the bench.</p>`;
     }
 
@@ -834,7 +909,7 @@ function renderLineup() {
         <ol>
           <li>Pick <b>${roster} couples</b> below. Better dancers cost more, and ${money(weekCap)} isn't enough for ${roster} of the best — that's the game.</li>
           <li>The judges score each couple <b>out of 30</b>. You get whatever they get. Your ${roster} added together is your week.</li>
-          <li>Then call <b>who goes home</b>${elimSlots(week).length > 1
+          <li>Then call <b>who goes home</b>${elimSlotsFor(week).length > 1
             ? ` — <b>two calls</b> premiere week, one for Tuesday's men and one for Wednesday's women. ${elimBonus()} points each`
             : ` for ${elimBonus()} bonus points`}. It's free and doesn't use your budget.</li>
         </ol>
@@ -893,7 +968,7 @@ function renderLineup() {
       }
       html += `</div>`;
     } else if (!noElimination(week)) {
-      const slots = elimSlots(week);
+      const slots = elimSlotsFor(week);
       html += `<h2>🏠 Who goes home?</h2>`;
       html += slots.length > 1
         ? `<p class="hint">Two couples go home premiere week — <b>one Tuesday, one Wednesday</b>. Make both calls. Each is worth ${elimBonus()} points on its own, and neither costs a cent of your budget.</p>`
@@ -901,7 +976,7 @@ function renderLineup() {
 
       for (const s of slots) {
         const picked = elimPickAt(state.player.id, week, s.slot);
-        const pool = activeCast(week).filter(c => s.night == null || c.night === s.night);
+        const pool = boardFor(week).filter(c => s.night == null || c.night === s.night);
         if (!pool.length) continue;
 
         if (s.label) {
@@ -925,11 +1000,11 @@ function renderLineup() {
     }
 
     // the cast
-    html += `<h2>The ballroom — week ${week}</h2>`;
+    html += `<h2>${catchUp ? "Wednesday's women" : `The ballroom — week ${week}`}</h2>`;
     // Named `board`, not `roster` — a second `const roster` in this block would
     // shadow the team size declared above and put every earlier use of it in a
     // temporal dead zone, which is exactly the bug this replaced.
-    const board = activeCast(week).slice().sort((a, b) => priceIn(b.id, week) - priceIn(a.id, week));
+    const board = boardFor(week).slice().sort((a, b) => priceIn(b.id, week) - priceIn(a.id, week));
     html += `<div class="slots">`;
     for (const c of board) {
       const price = priceIn(c.id, week);
@@ -1004,6 +1079,10 @@ async function addCouple(id) {
   if (!pickable(week)) return;
   const mine = lineupOf(state.player.id, week);
   if (mine.some(l => l.couple_id === id)) return;
+  if (!boardFor(week).some(c => c.id === id)) {
+    $("#banner").textContent = "Tuesday's men have already danced — tonight's women only.";
+    return;
+  }
   if (mine.length >= rosterFor(week)) { $("#banner").textContent = `Your team is full — drop someone first.`; return; }
   const price = priceIn(id, week);
   const spent = mine.reduce((t, l) => t + l.price, 0);
@@ -1059,6 +1138,7 @@ async function pickWinner(id) {
 async function pickElim(id, slot = 1) {
   const week = state.week;
   if (!pickable(week)) return;
+  if (!elimSlotsFor(week).some(s => s.slot === slot)) return;
   const prev = elimPickAt(state.player.id, week, slot);
   const mineAt = e => e.player_id === state.player.id && e.week === week && (e.slot || 1) === slot;
   state.elimpicks = state.elimpicks.filter(e => !mineAt(e));
@@ -1107,6 +1187,10 @@ function teamCardHtml(playerId, week, isMe) {
     </div>`;
   }
   html += `</div>`;
+  if (isCatchUpWeek(week, playerId)) {
+    html += `<p class="hint">🪩 <b style="color:var(--good)">+${CATCHUP_POINTS}</b> for Tuesday — ${
+      isMe ? "you joined" : `${esc(p?.name || "they")} joined`} after the men had danced, so that night is spotted.</p>`;
+  }
   if (isFinale(week)) {
     const pick = winnerPickOf(playerId), champ = champion();
     if (pick) {
@@ -1123,7 +1207,7 @@ function teamCardHtml(playerId, week, isMe) {
     html += `<p class="hint">🏠 Called ${esc(c.celeb)} to go home — ${
       noElimination(week) ? "no elimination this week, so no bonus for anyone."
       : right ? `<b style="color:var(--good)">right, +${elimBonus()}</b>.`
-      : weekHasResults(week) ? `<span style="color:var(--bad)">not this time</span>.` : "still to come."}</p>`;
+      : elimSettled(week, ep.couple_id) ? `<span style="color:var(--bad)">not this time</span>.` : "still to come."}</p>`;
   }
   return html;
 }
@@ -1685,10 +1769,14 @@ function openRecap(pid) {
     for (const ep of elimPicksOf(pid, week)) {
       const right = !noElimination(week) && elimsIn(week).includes(ep.couple_id);
       if (right) callPts += elimBonus();
-      const settled = noElimination(week) || elimsIn(week).length > 0;
+      const settled = elimSettled(week, ep.couple_id);
       calls += line("🏠 " + esc(byId(ep.couple_id).celeb) + " goes home",
         right ? "+" + elimBonus() : (settled ? 0 : "—"),
         noElimination(week) ? "nobody went home" : settled ? "" : "nobody marked out yet");
+    }
+    if (isCatchUpWeek(week, pid)) {
+      calls += line("🪩 Spotted for Tuesday", "+" + CATCHUP_POINTS, "joined after the men danced");
+      callPts += CATCHUP_POINTS;
     }
     if (calls) body += `<h2>Calls · ${callPts}</h2>` + calls;
 

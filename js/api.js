@@ -83,7 +83,7 @@ export function renamePlayer(playerId, name) {
 }
 
 export function listPlayers(leagueId) {
-  return rest(`dwts_players?league_id=eq.${encodeURIComponent(leagueId)}&select=id,name,app_version,last_seen,last_via&order=name`);
+  return rest(`dwts_players?league_id=eq.${encodeURIComponent(leagueId)}&select=id,name,created_at,app_version,last_seen,last_via&order=name`);
 }
 
 // ---------- lineups ----------

@@ -26,6 +26,32 @@ explain them in plain language, no build tools, no frameworks.
 - The price you PAY is frozen on the lineup row, so repricing a later week can never
   push an already-saved lineup over the cap.
 
+## The premiere catch-up (v4.9)
+
+Week 1 was a two-night premiere and it locked before night two danced, so
+someone joining on Wednesday missed a night that can't be re-run. Rather than
+lock them out of week 1 or hand them the whole board after the men's scores were
+posted, they play the half that's still to come:
+
+- two of Wednesday's **women**, with **$25,000** — Tuesday's men are off their board
+- Wednesday's elimination call only, not both
+- **+40 points** for Tuesday, computed in `weekPoints()` and never stored
+
+The numbers are the league's own: the thirteen who played Tuesday carried 2.15
+women each and spent an average of $22,700 on them, and banked an average of
+45.1 from the men. Nothing about the thirteen changes — no recalculation, no
+score rows, no standings shuffle.
+
+"Late joiner" is DERIVED from `dwts_players.created_at` against the dated window
+in `config.js` (`CATCHUP_OPENS`/`CATCHUP_CLOSES`), the same way the Mirror Balls
+balance is derived — so it can't be granted by hand and a week-eight joiner can
+never fall into 40 free points. The window is one evening and then it's history;
+`isCatchUpWeek()` stays true forever so their week-1 card still renders right,
+while `catchUpOpen()` is what actually lets them pick.
+
+If season 36 opens over two nights again, move the two dates and the season's
+own numbers — don't reuse 2026's.
+
 ## A prop you write yourself needs the league's OK
 
 Anyone can write a prop — that's the fun — but you could write one you already

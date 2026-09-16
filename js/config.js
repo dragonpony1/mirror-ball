@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "4.8";
+export const VERSION = "4.9";
 
 export const SEASON = 35;
 
@@ -42,3 +42,27 @@ export const PROP_OKS_NEEDED = 5;
 // real balls staked on six props for week 1; invalidating those mid-week would
 // have been worse than the exploit.
 export const PROP_OKS_FROM = "2026-09-16T03:14:00Z";
+
+// ---------- the premiere catch-up ----------
+// Week 1 was a two-night premiere and it locked before night two had danced, so
+// anyone joining on Wednesday missed a night that can never be given back. They
+// get the half of week 1 that hasn't happened yet, and only that half: two of
+// Wednesday's women, half the cap, and the call on which of them goes home.
+// Tuesday's men are off the board — their scores are already posted, and
+// picking a known result isn't a pick.
+//
+// The numbers are the league's own, not a favour. The thirteen who played
+// Tuesday carried 2.15 women each and spent an average of $22,700 on them, so
+// two couples at $25,000 is par. They banked an average of 45.1 from the men,
+// so 40 is a shade under it.
+//
+// The window is dated on purpose: it opens at week 1's lock and shuts an hour
+// into Wednesday's show — the same grace the rest of the league got on Tuesday.
+// A week-eight joiner can never fall into 40 free points.
+export const CATCHUP_WEEK = 1;
+export const CATCHUP_NIGHT = 2;
+export const CATCHUP_ROSTER = 2;
+export const CATCHUP_CAP = 25000;
+export const CATCHUP_POINTS = 40;
+export const CATCHUP_OPENS = Date.UTC(2026, 8, 16, 1, 0, 0);   // 7pm MT Tue — week 1's lock
+export const CATCHUP_CLOSES = Date.UTC(2026, 8, 17, 1, 0, 0);  // 7pm MT Wed — an hour into night two

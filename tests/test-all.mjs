@@ -8,6 +8,9 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
 import { majority, approval, propResult } from "../js/rules.js";
+import { CAST, elimSlots } from "../js/cast.js";
+import { CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP,
+         CATCHUP_POINTS, CATCHUP_OPENS, CATCHUP_CLOSES } from "../js/config.js";
 
 let pass = 0, fail = 0;
 const is = (name, got, want) => {
@@ -227,6 +230,63 @@ is("a tie pays nobody even when the card's in",
 is("the old one-person answer still stands",    R({ votes: [], fallback: "no" }), "no");
 is("...but votes outrank it once they exist",   R({ votes: yes(2), fallback: "no" }), "yes");
 is("...and even it waits for the full card",    R({ votes: [], fallback: "no", weekFinished: false }), null);
+
+// The premiere catch-up. Like the roster rule above, the logic lives in app.js
+// behind a DOM, so it is restated here -- but the NUMBERS are imported, so if
+// anyone edits config.js these tests move with them and still hold the shape.
+console.log("\nthe premiere catch-up -- half a team, half the money, 40 for the night you missed");
+
+const inWindow = t => t >= CATCHUP_OPENS && t < CATCHUP_CLOSES;
+const HOUR = 60 * 60 * 1000;
+
+is("someone who joined before week 1 locked is not a catch-up",
+   inWindow(CATCHUP_OPENS - HOUR), false);
+is("someone who joined an hour after the lock is",
+   inWindow(CATCHUP_OPENS + HOUR), true);
+is("...and so is the last minute of the window",
+   inWindow(CATCHUP_CLOSES - 60000), true);
+is("someone who joins after Wednesday's show is NOT -- no free 40 in week eight",
+   inWindow(CATCHUP_CLOSES), false);
+is("the window is a single evening, not a standing rule",
+   (CATCHUP_CLOSES - CATCHUP_OPENS) / HOUR, 24);
+
+const women = CAST.filter(c => c.night === CATCHUP_NIGHT);
+const men = CAST.filter(c => c.night !== CATCHUP_NIGHT);
+is("their board is Wednesday's women only", women.length, 8);
+is("Tuesday's men are closed to them -- those scores are already posted", men.length, 8);
+
+const dear = women.map(c => c.price).sort((a, b) => b - a);
+const cheap = women.map(c => c.price).sort((a, b) => a - b);
+const sum = xs => xs.reduce((t, v) => t + v, 0);
+is("half a team is two", CATCHUP_ROSTER, 2);
+is("half the money is $25,000", CATCHUP_CAP, 25000);
+is("the cheapest legal pair is affordable, so the week is always playable",
+   sum(cheap.slice(0, CATCHUP_ROSTER)) <= CATCHUP_CAP, true);
+is("...but the cap still bites -- the two priciest women do not both fit",
+   sum(dear.slice(0, CATCHUP_ROSTER)) > CATCHUP_CAP, true);
+
+// Two of eight is no richer a slice of the board than five of sixteen was.
+// Anything much richer and joining a night late starts to pay.
+is("two of eight is no bigger a slice than five of sixteen",
+   CATCHUP_ROSTER / women.length <= 5 / CAST.length, true);
+
+// The thirteen who played Tuesday banked an average of 45.1 from the men.
+is("the spot is under what Tuesday actually paid the league", CATCHUP_POINTS < 45.1, true);
+is("...and not so far under that joining late is a punishment", CATCHUP_POINTS >= 35, true);
+
+// Unspent cap becomes Mirror Balls, so half a cap must not bank a full purse.
+const ballsFrom = (cap, team) => Math.floor(Math.max(0, cap - team) / 1000);
+is("a catch-up week cannot bank more balls than a full week",
+   ballsFrom(CATCHUP_CAP, sum(cheap.slice(0, CATCHUP_ROSTER)))
+     <= ballsFrom(50000, sum(CAST.map(c => c.price).sort((a, b) => a - b).slice(0, 5))),
+   true);
+
+// One night, one call. They do not get Tuesday's elimination as well.
+const slots = elimSlots(CATCHUP_WEEK);
+const theirs = slots.filter(s => s.night === CATCHUP_NIGHT);
+is("premiere week has two elimination calls for everyone else", slots.length, 2);
+is("...and exactly one for them", theirs.length, 1);
+is("...which is Wednesday's", theirs[0].slot, 2);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

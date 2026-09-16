@@ -295,6 +295,14 @@ h2:first-child { margin-top: 4px; }
 }
 .notopen > span { display: block; font-size: .82rem; color: var(--dim); line-height: 1.45; }
 
+/* the same box, but this one is good news — you joined late and you're IN */
+.notopen.catchup {
+  background: linear-gradient(180deg, rgba(0,229,208,.10), rgba(255,255,255,.04));
+  border-color: rgba(0,229,208,.45);
+}
+.notopen.catchup > b { color: var(--good, #4ade80); }
+.notopen.catchup > span b { color: var(--text); }
+
 /* "your team is in" — the confirmation, and where the lock time lives */
 .teamin {
   background: linear-gradient(180deg, rgba(74,222,128,.16), rgba(74,222,128,.06));
