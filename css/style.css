@@ -347,6 +347,28 @@ h2:first-child { margin-top: 4px; }
 }
 .xbtn:hover { background: var(--bad); border-color: var(--bad); }
 
+/* live score entry, right on the Ballroom list */
+.livescore { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.livescore input {
+  width: 58px; margin: 0; padding: 8px 4px; text-align: center;
+  font-family: var(--display); font-size: 1.5rem; letter-spacing: .03em;
+  color: var(--gold); background: rgba(0,0,0,.35); border: 1px solid var(--edge); border-radius: 10px;
+}
+.livescore input::placeholder { color: var(--dim); font-size: 1.1rem; }
+.livescore input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* the phone's own number spinners are useless on a 2-digit field */
+.livescore input::-webkit-outer-spin-button,
+.livescore input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.livescore input[type=number] { -moz-appearance: textfield; }
+.homebtn {
+  width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: .95rem; line-height: 1;
+  background: rgba(255,255,255,.07); border: 1px solid var(--edge); filter: grayscale(1); opacity: .5;
+}
+.homebtn.on { filter: none; opacity: 1; background: rgba(255,84,112,.22); border-color: var(--bad); }
+
+/* still needs a score while the show is on */
+.slot.filled.todo { border-style: dashed; border-color: rgba(255,210,74,.5); }
+
 /* ---------- judge paddles ---------- */
 
 .paddles { display: flex; gap: 4px; align-items: center; }

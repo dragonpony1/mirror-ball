@@ -1164,35 +1164,58 @@ async function pullBet(propId) {
 
 function renderBallroom() {
   const week = state.week;
-  const scored = activeCastPlusEliminated(week).map(c => ({ c, s: scoreFor(week, c.id) }));
-  const any = scored.some(x => x.s != null);
+  const roster = activeCastPlusEliminated(week);
+  const any = roster.some(c => scoreFor(week, c.id) != null);
+  // Live scoring opens the moment the week locks — that's when the show is on.
+  // Typing a score here saves it the instant you leave the box, so a couple can
+  // be scored in the thirty seconds before the next one dances.
+  const live = locked(week);
 
   let html = `<div class="row" style="justify-content:space-between">
     <h2 style="margin:4px 0">${weekLabel(week)} scores</h2>
-    <button class="ghost" id="openCommish">📝 Enter scores</button>
+    <button class="ghost" id="openCommish">⚙︎ Salaries &amp; settings</button>
   </div>`;
 
-  if (!any) {
-    html += `<p class="empty">No scores in for ${weekLabel(week)} yet.<br>They go in right after the show — anyone in the league can add them.</p>`;
-  } else {
-    const ranked = scored.slice().sort((a, b) => (b.s ?? -1) - (a.s ?? -1));
+  if (live) {
+    html += `<p class="hint">Type a score as each couple finishes — it saves on its own, one at a time. Nobody has to do the whole card, and the official scores are checked against these anyway.</p>`;
+  } else if (!any) {
+    html += `<p class="empty">Scores open when ${weekLabel(week)} locks.<br>Anyone can type them in as the show goes.</p>`;
+  }
+
+  // Unscored first while the show is on, so what needs doing is at the top;
+  // best-first once everyone has a number.
+  const rows = roster.slice().sort((a, b) => {
+    const sa = scoreFor(week, a.id), sb = scoreFor(week, b.id);
+    if (live && (sa == null) !== (sb == null)) return sa == null ? -1 : 1;
+    return (sb ?? -1) - (sa ?? -1);
+  });
+
+  if (live || any) {
     html += `<div class="slots">`;
-    for (const { c, s } of ranked) {
+    for (const c of rows) {
+      const s = scoreFor(week, c.id);
       const gone = elimsIn(week).includes(c.id);
       const owners = state.players.filter(p => lineupOf(p.id, week).some(l => l.couple_id === c.id));
-      html += `<div class="slot filled">
+      html += `<div class="slot filled ${live && s == null ? "todo" : ""}">
         ${medallionHtml(c)}
         <span class="cnames"><span class="celeb">${esc(c.celeb)}</span><span class="pro">with ${esc(c.pro)}</span>
           ${gone ? `<span class="gonehome">went home</span>` : ""}
           ${owners.length ? `<span class="known">on ${owners.map(o => esc(o.name)).join(", ")}'s team</span>` : `<span class="known">nobody had them</span>`}</span>
-        ${s == null ? `<span class="price"><small>no score</small></span>`
+        ${live ? `<span class="livescore">
+            <input type="number" min="0" max="40" step="1" inputmode="numeric" enterkeyhint="done"
+                   data-live="${esc(c.id)}" value="${s ?? ""}" placeholder="—" aria-label="Score for ${esc(c.celeb)}">
+            <button type="button" class="homebtn ${gone ? "on" : ""}" data-home="${esc(c.id)}" title="Went home">🏠</button>
+          </span>`
           : s === 30 ? `<span class="paddles"><span class="paddle ten">10</span><span class="paddle ten">10</span><span class="paddle ten">10</span></span>`
           : `<span class="scorepill">${s}<small>out of 30</small></span>`}
       </div>`;
     }
     html += `</div>`;
-    const stamp = state.scores.find(s => s.week === week && s.entered_by);
-    if (stamp) html += `<p class="hint">Scores entered by ${esc(stamp.entered_by)} · ${new Date(stamp.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. Anyone can fix a typo.</p>`;
+    const stamp = state.scores.filter(x => x.week === week && x.entered_by);
+    if (stamp.length) {
+      const names = [...new Set(stamp.map(x => x.entered_by))];
+      html += `<p class="hint">${stamp.length} in — by ${names.map(esc).join(", ")}. Anyone can fix a typo.</p>`;
+    }
   }
 
   // Photos. Deliberately its own section rather than making every medallion a
@@ -1226,12 +1249,58 @@ function renderBallroom() {
 
   $("#content").innerHTML = html;
   $("#openCommish").onclick = () => openCommish(week);
+  $("#content").querySelectorAll("[data-live]").forEach(inp => {
+    inp.onchange = () => saveOneScore(week, inp.dataset.live, inp.value);
+    // Enter should commit and move on, not submit anything
+    inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
+  });
+  $("#content").querySelectorAll("[data-home]").forEach(b =>
+    b.onclick = () => toggleHome(week, b.dataset.home));
   $("#content").querySelectorAll("[data-face]").forEach(b => b.onclick = () => {
     state.facingCouple = b.dataset.face;
     $("#facefile").value = "";
     $("#facefile").click();
   });
   $("#facefile").onchange = uploadFace;
+}
+
+// One score, saved the moment you leave the box. Optimistic so the standings
+// move immediately; rolled back and reported if the write fails.
+async function saveOneScore(week, coupleId, raw) {
+  const txt = String(raw).trim();
+  let score = txt === "" ? null : Math.round(Number(txt));
+  if (score != null && (!Number.isFinite(score) || score < 0 || score > 40)) {
+    $("#banner").textContent = "A score has to be between 0 and 40.";
+    render(); return;
+  }
+  const prev = state.scores.find(x => x.week === week && x.couple_id === coupleId);
+  const gone = !!prev?.eliminated;
+  upsertScoreLocally(week, coupleId, score, gone);
+  render();
+  try {
+    await api.saveScores([{ week, couple_id: coupleId, score, eliminated: gone, entered_by: state.player.name }]);
+    if (score === 30) confetti();
+  } catch (e) { restoreScore(week, coupleId, prev); render(); showError(e); }
+}
+
+async function toggleHome(week, coupleId) {
+  const prev = state.scores.find(x => x.week === week && x.couple_id === coupleId);
+  const gone = !prev?.eliminated;
+  upsertScoreLocally(week, coupleId, prev?.score ?? null, gone);
+  render();
+  try {
+    await api.saveScores([{ week, couple_id: coupleId, score: prev?.score ?? null, eliminated: gone, entered_by: state.player.name }]);
+  } catch (e) { restoreScore(week, coupleId, prev); render(); showError(e); }
+}
+
+function upsertScoreLocally(week, coupleId, score, eliminated) {
+  state.scores = state.scores.filter(x => !(x.week === week && x.couple_id === coupleId));
+  state.scores.push({ week, couple_id: coupleId, score, eliminated, entered_by: state.player.name, updated_at: new Date().toISOString() });
+}
+
+function restoreScore(week, coupleId, prev) {
+  state.scores = state.scores.filter(x => !(x.week === week && x.couple_id === coupleId));
+  if (prev) state.scores.push(prev);
 }
 
 // Everyone who danced in that week: still in, plus whoever was eliminated that night.
