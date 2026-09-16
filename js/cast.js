@@ -46,6 +46,11 @@ export function initials(c) {
 export const TOTAL_WEEKS = 12;
 
 // Tue Sept 15, 2026, 8:00pm Eastern = 00:00 UTC on Sept 16 (EDT, UTC-4).
+//
+// NOTE: Mountain and Central affiliates air network primetime an hour behind the
+// live Eastern feed, so an 8pm ET lock shuts a Denver league out a full hour
+// before their show starts. Week 1's lock was overridden to 7pm MT on the night
+// for exactly that reason. Override the lock per week rather than moving this.
 const PREMIERE_UTC = Date.UTC(2026, 8, 16, 0, 0, 0);
 
 export function defaultLock(week) {

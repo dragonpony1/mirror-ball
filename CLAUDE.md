@@ -48,7 +48,8 @@ explain them in plain language, no build tools, no frameworks.
 
 ## Tests
 
-`node tests/test-all.mjs` — run before every push. Covers the live-vs-authoritative
+`node --experimental-vm-modules tests/test-all.mjs` — run before every push (the flag is
+needed for the parse check; without it that one test fails and the rest still run). Covers the live-vs-authoritative
 score reconcile rule and the shrinking-roster ladder. The workflow runs it too, so a
 broken rule fails the scheduled check instead of quietly writing bad scores.
 

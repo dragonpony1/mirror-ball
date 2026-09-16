@@ -143,10 +143,13 @@ const lockAt = week => api.lockTime(week, state.weeks);
 // ballroom is down to the champion there's nothing to pick, so fall through to
 // the trophy week, and failing that the last week that actually happened.
 function currentWeek() {
-  for (let w = 1; w <= TOTAL_WEEKS; w++) if (!locked(w) && weekPlayable(w)) return w;
+  for (let w = 1; w <= TOTAL_WEEKS; w++) if (weekOpen(w)) return w;
   const over = trophyWeek();
   if (over) return over;
   for (let w = TOTAL_WEEKS; w >= 1; w--) if (weekHasResults(w)) return w;
+  // Show night: this week has locked and nothing is scored yet. Sit on it —
+  // that's the week everyone is watching, not the one they can't touch.
+  for (let w = TOTAL_WEEKS; w >= 1; w--) if (locked(w)) return w;
   return 1;
 }
 
@@ -193,7 +196,13 @@ const weekPlayable = week => activeCast(week).length >= 2;
 // onto your pick, so buying next week's couples BEFORE the show reprices them
 // bought them at the old, cheaper rate — with no real downside, since an
 // eliminated pick could just be dropped and the money spent again.
-const pickable = week => !locked(week) && weekPlayable(week) && week === currentWeek();
+// A week opens for picking only once the PREVIOUS week's results are in — not
+// merely when the previous week locks. Otherwise the moment a show starts, next
+// week's couples are buyable at prices the show hasn't moved yet, which is
+// exactly the edge that had to be closed in v2.2.
+const weekOpen = week =>
+  !locked(week) && weekPlayable(week) && (week === 1 || weekHasResults(week - 1));
+const pickable = week => weekOpen(week) && week === currentWeek();
 const stillStanding = () => CAST.filter(c => !state.scores.some(s => s.couple_id === c.id && s.eliminated));
 
 // The cap shrinks with the team, or it stops biting — $50,000 buys the three
@@ -451,11 +460,11 @@ function untilText(date) {
 
 // Everything this week still wants from you, as short noun phrases that read
 // in a list. Empty means you're done.
-function stillToDo(week) {
-  const me = state.player.id, todo = [];
+function stillToDo(week, playerId) {
+  const me = playerId || state.player.id, todo = [];
   if (lineupOf(me, week).length < rosterFor(week)) todo.push("your team");
   if (isFinale(week)) {
-    if (!winnerPickOf(me)) todo.push("your winner call");
+    if (!winnerPickOf(me)) todo.push("the winner call");
   } else if (!noElimination(week)) {
     const slots = elimSlots(week);
     const missing = slots.filter(s => !elimPickAt(me, week, s.slot));
@@ -1270,6 +1279,7 @@ function renderLeague() {
     </div>`;
   }
 
+  html += readinessHtml();
   html += `<h2>Standings</h2>${standingsHtml()}`;
   if (state.recapPlayer) html += recapHtml(state.recapPlayer);
 
@@ -1285,11 +1295,51 @@ function renderLeague() {
   $("#content").innerHTML = html;
   $("#pic").onchange = uploadLeaguePhoto;
   $("#chatform").onsubmit = onChat;
+  if ($("#nudge")) $("#nudge").onclick = nudgeStragglers;
   $("#content").querySelectorAll("[data-player]").forEach(tr => tr.onclick = () => {
     state.recapPlayer = state.recapPlayer === tr.dataset.player ? null : tr.dataset.player;
     render();
   });
   drawChat();
+}
+
+// Who's actually ready for the open week, so the commissioner knows who to
+// chase. Before a show this is the most useful thing on the screen — standings
+// are all zeroes until the judges have scored anything.
+function readinessHtml() {
+  // The selected week can be one nobody can act on yet (week 2 the moment week 1
+  // locks). Fall back to the last week that actually happened.
+  const week = (locked(state.week) || pickable(state.week))
+    ? state.week
+    : (() => { for (let k = state.week - 1; k >= 1; k--) if (locked(k)) return k; return state.week; })();
+  if (!state.players.length) return "";
+  const roster = rosterFor(week);
+  const isLocked = locked(week);
+
+  const rows = state.players.map(p => {
+    const picked = lineupOf(p.id, week).length;
+    const todo = stillToDo(week, p.id);
+    return { p, picked, todo, state: picked === 0 ? "none" : todo.length ? "part" : "done" };
+  });
+  const done = rows.filter(r => r.state === "done");
+  const part = rows.filter(r => r.state === "part");
+  const none = rows.filter(r => r.state === "none");
+  const behind = [...part, ...none];
+
+  const until = untilText(lockAt(week));
+  return `<h2>${isLocked ? "Who got in" : "Who's ready"} — ${weekLabel(week)}</h2>
+    <p class="hint">${isLocked
+      ? "Locked. This is who made it."
+      : until ? `Locks ${untilText(lockAt(week))}.` : "Locking now."}</p>
+    <div class="ready">
+      ${done.length ? `<div class="rgroup done"><b>✓ All set — ${done.length}</b>
+        <span>${done.map(r => esc(r.p.name)).join(" · ")}</span></div>` : ""}
+      ${part.length ? `<div class="rgroup part"><b>⚠ Team in, not finished — ${part.length}</b>
+        ${part.map(r => `<span>${esc(r.p.name)} — still needs ${esc(listOut(r.todo))}</span>`).join("")}</div>` : ""}
+      ${none.length ? `<div class="rgroup none"><b>✗ Nothing at all — ${none.length}</b>
+        <span>${none.map(r => esc(r.p.name)).join(" · ")}</span></div>` : ""}
+    </div>
+    ${!isLocked && behind.length ? `<button class="ghost" id="nudge" style="margin-top:10px">📣 Nudge the ${behind.length} who aren't done</button>` : ""}`;
 }
 
 function standingsHtml() {
@@ -2001,8 +2051,40 @@ function updateTicker() {
   const last = state.chat[state.chat.length - 1];
   const t = $("#ticker");
   if (!last || state.view === "league") { t.hidden = true; return; }
-  $("#tickertext").textContent = `💬 ${last.dwts_players?.name || "🪩 Score check"}: ${last.body}`;
+  const who = last.dwts_players?.name || "🪩 Score check";
+  const line = "💬 " + who + ": " + last.body;
+  // two copies so the marquee loops seamlessly at -50%
+  $("#tickertext").innerHTML =
+    '<span class="run"><span>' + esc(line) + '</span><span>' + esc(line) + '</span></span>';
   t.hidden = false;
+}
+
+// A ready-made message naming who still has to do something, so chasing people
+// is one tap rather than a typing job.
+// A ready-made message naming who still has to do something, so chasing
+// people is one tap rather than a typing job.
+async function nudgeStragglers() {
+  const week = state.week;
+  const behind = state.players
+    .map(p => ({ p, picked: lineupOf(p.id, week).length, todo: stillToDo(week, p.id) }))
+    .filter(r => r.picked === 0 || r.todo.length);
+  if (!behind.length) return;
+  const NL = String.fromCharCode(10);
+  const when = untilText(lockAt(week));
+  const link = location.origin + location.pathname;
+  const who = behind
+    .map(r => r.p.name + ' — ' + (r.picked === 0 ? 'no team yet' : 'still needs ' + listOut(r.todo)))
+    .join(NL);
+  const text = '🪩 ' + weekLabel(week) + ' locks' + (when ? ' ' + when : ' shortly') + '!' + NL + NL
+    + who + NL + NL + link + NL + 'Tap your name, no passcode.';
+  try { await navigator.share({ text }); }
+  catch (e) {
+    if (e.name === 'AbortError') return;
+    try {
+      await navigator.clipboard.writeText(text);
+      $('#banner').textContent = 'Nudge copied — paste it into the group chat.';
+    } catch { $('#banner').textContent = text; }
+  }
 }
 
 // ---------- share / install / updates ----------

@@ -528,6 +528,18 @@ select option { background: #2a0a3d; color: var(--ink); }
 .recap li { margin: 3px 0; list-style: none; }
 .recap ul { margin: 6px 0; padding: 0; }
 
+/* who's ready for the open week */
+.ready { display: grid; gap: 8px; }
+.rgroup { border-radius: 12px; padding: 10px 12px; border: 1px solid var(--edge); background: rgba(255,255,255,.04); }
+.rgroup > b { display: block; font-size: .84rem; margin-bottom: 3px; }
+.rgroup > span { display: block; font-size: .82rem; color: var(--ink); line-height: 1.45; }
+.rgroup.done { border-color: rgba(74,222,128,.45); background: rgba(74,222,128,.09); }
+.rgroup.done > b { color: var(--good); }
+.rgroup.part { border-color: rgba(255,210,74,.5); background: rgba(255,210,74,.09); }
+.rgroup.part > b { color: var(--gold); }
+.rgroup.none { border-color: rgba(255,84,112,.5); background: rgba(255,84,112,.09); }
+.rgroup.none > b { color: var(--bad); }
+
 /* ---------- chat ---------- */
 
 .chat { background: rgba(0,0,0,.3); border: 1px solid var(--edge); border-radius: 14px; padding: 10px; }
@@ -548,8 +560,19 @@ select option { background: #2a0a3d; color: var(--ink); }
 .ticker {
   position: sticky; top: 0; z-index: 18; width: 100%; display: block; cursor: pointer;
   background: linear-gradient(90deg, var(--pink), #8B1E6B); color: #fff; border: 0;
-  font: inherit; font-size: .8rem; padding: 6px 12px; text-align: left;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: inherit; font-size: .8rem; padding: 6px 0; text-align: left;
+  white-space: nowrap; overflow: hidden;
+}
+/* The chat scrolls past rather than being cut off — a long message was just an
+   ellipsis before, which is no use to anyone. Duplicated inside so the tail of
+   one copy meets the head of the next and it never shows a gap. */
+.ticker .run { display: inline-block; white-space: nowrap; animation: slide 22s linear infinite; }
+.ticker .run span { padding-right: 3.5rem; }
+.ticker:hover .run, body.asleep .ticker .run { animation-play-state: paused; }
+@keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .ticker .run { animation: none; }
+  .ticker { text-overflow: ellipsis; }
 }
 .ticker[hidden] { display: none; }
 

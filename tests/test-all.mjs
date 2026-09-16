@@ -4,6 +4,8 @@
 // how a live score check differs from the authoritative one, and how the team
 // shrinks as the ballroom empties.
 
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
 
 let pass = 0, fail = 0;
@@ -114,6 +116,17 @@ is("stake 4 then upgrade to a $48k team -> short", balance(50000, 48000, 5, 3600
 is("...and short by exactly 2",                    balance(50000, 48000, 5, 36000, 4), -2);
 is("spending right up to what you staked is fine", balance(50000, 46000, 5, 36000, 4), 0);
 is("dropping someone never puts you short",        balance(50000, 30000, 4, 36000, 4) >= 0, true);
+
+console.log("");
+console.log("every source file still parses");
+// A stray newline inside a quoted string, or a bad escape, takes the whole app
+// down to a blank screen with one console error. Cheap to catch here.
+for (const f of ["js/app.js", "js/api.js", "js/cast.js", "js/config.js"]) {
+  let ok = true, why = "";
+  try { new vm.SourceTextModule(readFileSync(new URL("../" + f, import.meta.url), "utf8")); }
+  catch (e) { ok = false; why = e.message; }
+  is(f + (ok ? "" : " — " + why), ok, true);
+}
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
