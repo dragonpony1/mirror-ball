@@ -142,5 +142,15 @@ is("a cheap couple who smashes it gets dear",        reprice(6000, 28, 19), 8300
 is("never falls below the floor",                    reprice(4200, 5, 25), 4000);
 is("never rises above the ceiling",                  reprice(17800, 30, 15), 18000);
 
+console.log("");
+console.log("a week opens only when the one before it is FINISHED");
+// The premiere scored 8 men on Tuesday with 8 women still to dance. That must
+// NOT open week 2 — prices would come from half a week, before any elimination.
+const complete = scores => scores.length > 0 && scores.every(s => s != null);
+is("half the card scored is not finished", complete([21,20,17,16,null,null,null,null]), false);
+is("every couple scored is finished",      complete([21,20,17,16,15,12,10,24]), true);
+is("an empty card is not finished",        complete([]), false);
+is("one straggler still blocks it",        complete([21,20,17,16,15,12,10,null]), false);
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

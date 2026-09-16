@@ -229,8 +229,17 @@ const weekPlayable = week => activeCast(week).length >= 2;
 // merely when the previous week locks. Otherwise the moment a show starts, next
 // week's couples are buyable at prices the show hasn't moved yet, which is
 // exactly the edge that had to be closed in v2.2.
+// "Has results" is not the same as FINISHED. The premiere scored its eight men
+// on Tuesday with the women still to dance on Wednesday — that was enough to
+// open week 2, at prices worked out from half a week, before anyone knew who
+// was going home. A week opens only when every couple still in the running has
+// a score for the week before.
+function weekComplete(week) {
+  const roster = activeCastPlusEliminated(week);
+  return roster.length > 0 && roster.every(c => scoreFor(week, c.id) != null);
+}
 const weekOpen = week =>
-  !locked(week) && weekPlayable(week) && (week === 1 || weekHasResults(week - 1));
+  !locked(week) && weekPlayable(week) && (week === 1 || weekComplete(week - 1));
 const pickable = week => weekOpen(week) && week === currentWeek();
 const stillStanding = () => CAST.filter(c => !state.scores.some(s => s.couple_id === c.id && s.eliminated));
 
