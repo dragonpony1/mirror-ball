@@ -144,6 +144,9 @@ create policy "anyone can set up a league" on dwts_leagues for update using (tru
 create policy "read players"   on dwts_players for select using (true);
 create policy "add players"    on dwts_players for insert with check (true);
 create policy "rename players" on dwts_players for update using (true);
+-- Without this a mistyped join is permanent: Ruby typed the passcode as her
+-- name and nothing in the app could clear the stray account.
+create policy "remove players" on dwts_players for delete using (true);
 
 create policy "read lineups"   on dwts_lineups for select using (true);
 create policy "set lineups"    on dwts_lineups for insert with check (true);
