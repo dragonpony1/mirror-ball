@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "5.0";
+export const VERSION = "5.1";
 
 export const SEASON = 35;
 
@@ -22,8 +22,9 @@ export const DEFAULT_WINNER_BONUS = 50;
 
 // ---------- Mirror Balls ----------
 // Every $1,000 of salary cap you DON'T spend becomes a Mirror Ball, which you
-// stake on the week's prop bets. You only earn them from a week you actually
-// fielded a full team in — otherwise picking nobody would bank you fifty.
+// stake on the week's prop bets. One couple is enough to earn — a full team is
+// NOT required — but a week's earnings are capped at what's left after the
+// cheapest legal team, which is what stops "pick nobody and bank fifty".
 // They never expire, so they can be hoarded for a big finale flutter.
 export const DOLLARS_PER_BALL = 1000;
 export const MAX_BALLS_PER_PROP = 3;

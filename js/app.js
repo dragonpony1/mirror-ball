@@ -322,10 +322,12 @@ function capFor(week, playerId) {
 
 // ---------- Mirror Balls ----------
 //
-// Every $1,000 of cap you don't spend becomes a ball, but only from a week you
-// actually fielded a FULL team in — otherwise picking nobody would bank fifty a
-// week. The balance is derived, never stored, so it can't drift out of step
-// with the lineups and bets it's calculated from.
+// Every $1,000 of cap you don't spend becomes a ball. You do NOT need a full
+// team — one couple is enough — but a week is capped at maxBallsFor(), which is
+// what stops "pick nobody and bank fifty". The two together make omitting people
+// pointless rather than illegal: one cheap couple banks exactly what the cheapest
+// legal FIVE banks, and scores four dancers less. The balance is derived, never
+// stored, so it can't drift out of step with the lineups and bets behind it.
 
 const propsIn = week => state.props.filter(p => p.week === week);
 const betOn = (playerId, propId) => state.propbets.find(b => b.player_id === playerId && b.prop_id === propId) || null;
@@ -769,6 +771,10 @@ function renderLineup() {
   const held = heldBalls * DOLLARS_PER_BALL;
   const left = Math.max(0, capLeft - held);
   const full = mine.length >= roster;
+  const weekBalls = ballsFromWeek(state.player.id, week);
+  const freeToSpend = mine.length < roster
+    ? Math.max(0, capLeft - maxBallsFor(week, state.player.id) * DOLLARS_PER_BALL)
+    : 0;
 
   // Eliminations happen after you've already built next week's team, so a saved
   // lineup can wake up holding couples who went home, or be bigger than the
@@ -871,6 +877,10 @@ function renderLineup() {
         <span class="right">left to spend<br>${mine.length} of ${roster} couple${roster === 1 ? "" : "s"}</span>
       </div>
       <div class="capbar"><span style="width:${Math.min(100, ((spent + held) / weekCap) * 100).toFixed(1)}%"></span></div>
+      ${mine.length ? `<p class="hint" style="margin:7px 0 0">Leftover becomes <b>🪩 ${weekBalls}</b> this week${
+          freeToSpend > 0
+            ? ` — and you can still spend ${money(freeToSpend)} without losing one, so an empty slot is costing you a dancer for nothing`
+            : ``}.</p>` : ""}
       ${heldBalls ? `<p class="hint" style="margin:7px 0 0">🪩 ${heldBalls} staked on prop bets — ${money(held)} of your cap is spoken for.</p>` : ""}
       ${dead.length ? `<p class="hint" style="margin:7px 0 0"><b style="color:var(--bad)">${
         dead.map(l => esc(byId(l.couple_id).celeb)).join(" and ")} went home — drop ${dead.length === 1 ? "them" : "both"} and pick again.</b></p>` : ""}
@@ -1306,12 +1316,13 @@ function renderProps() {
   const week = state.week, me = state.player.id;
   const list = propsIn(week);
   const left = ballsLeft(me), earned = ballsEarned(me);
+  const ceiling = maxBallsFor(week, me);
   const open = pickable(week);
 
   let html = `<div class="balls">
     <b>🪩 ${left}</b>
     <span>Mirror Ball${left === 1 ? "" : "s"} to spend${earned !== left ? ` · ${earned} earned all season` : ""}</span>
-    <span class="hint" style="margin:5px 0 0">Every ${money(DOLLARS_PER_BALL)} of cap you don't spend becomes one, as long as you fielded a full team that week. They never expire.</span>
+    <span class="hint" style="margin:5px 0 0">Every ${money(DOLLARS_PER_BALL)} of cap you don't spend becomes one — <b>up to ${ceiling} this week</b>. That ceiling is why leaving couples out never banks you more, so you may as well fill your team. They never expire.</span>
   </div>`;
 
   if (!list.length) {
@@ -1343,7 +1354,7 @@ function renderProps() {
       </div>
       ${bet && !win && open ? `<div class="stake">
         <span>Balls on it:</span>
-        ${[1, 2, 3].slice(0, MAX_BALLS_PER_PROP).map(n => `<button type="button" class="stakeball ${bet.balls === n ? "on" : ""}"
+        ${Array.from({ length: MAX_BALLS_PER_PROP }, (_, i) => i + 1).map(n => `<button type="button" class="stakeball ${bet.balls === n ? "on" : ""}"
           data-stake="${esc(prop.id)}" data-balls="${n}" ${n > bet.balls + left ? "disabled" : ""}>${n}</button>`).join("")}
         <span class="worth">${pays * bet.balls} if right</span>
         <button type="button" class="linkbtn" data-pull="${esc(prop.id)}">take it back</button>
@@ -1852,8 +1863,10 @@ function renderRules() {
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Money you don't spend isn't wasted.</b> Every ${money(DOLLARS_PER_BALL)} of cap left over
-      becomes a 🪩 <b>Mirror Ball</b> — as long as you fielded a full team that week. They never
-      expire, so you can hoard them.
+      becomes a 🪩 <b>Mirror Ball</b>. You don't need a full team to earn them — but you can't earn
+      <i>more</i> by picking fewer, because each week is capped at whatever's left after the cheapest
+      legal team. So leaving a slot empty costs you a dancer and gains you nothing. They never
+      expire, so you can hoard them for the finale.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Spend Mirror Balls on prop bets.</b> Side bets on the night: <i>will anyone score a 30,
