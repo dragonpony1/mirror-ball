@@ -4,7 +4,7 @@ import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BON
          CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP, CATCHUP_POINTS,
          CATCHUP_OPENS, CATCHUP_CLOSES } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
-import { majority, approval, propResult } from "./rules.js";
+import { majority, approval, propResult, looksLikePasscode } from "./rules.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -127,8 +127,13 @@ async function liveTick() {
 
 function showError(e) {
   console.error(e);
-  $("#banner").textContent = "Couldn't reach the league just now — check your signal and try again.";
+  $("#banner").textContent = e?.friendly
+    ? e.message
+    : "Couldn't reach the league just now — check your signal and try again.";
 }
+
+// An error whose message is meant for a person, not the console.
+const userError = msg => Object.assign(new Error(msg), { friendly: true });
 
 // ---------- the show: scores, eliminations, prices ----------
 
@@ -2143,7 +2148,10 @@ function renderJoin() {
       if (p) signInAs(lg, p).catch(showError);
     });
     $("#imnew").onclick = () => {
-      const name = prompt(`Your name for ${lg.name}?`);
+      let name = prompt(`Your name for ${lg.name}?`);
+      if (looksLikePasscode(name, lg.passcode)) {
+        name = prompt(`“${name.trim()}” is the passcode — you're already in the right place. What name do you want on the scoreboard?`);
+      }
       if (name && name.trim()) joinLeague(lg, name.trim()).catch(showError);
     };
     measureHeader();
@@ -2282,6 +2290,10 @@ async function renameMe() {
 }
 
 async function joinLeague(league, name) {
+  // Every join path lands here, so this is the one place the guard has to be.
+  if (looksLikePasscode(name, league.passcode)) {
+    throw userError(`“${String(name).trim()}” is the league passcode, not a name — you're already in the right place. Put in the name you want on the scoreboard.`);
+  }
   const player = await api.getOrCreatePlayer(name, league.id);
   state.player = player;
   // Stamp them straight away. Without this, someone who joins and picks a team

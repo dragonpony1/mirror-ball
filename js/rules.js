@@ -58,3 +58,16 @@ export function propResult({ votes = [], weekFinished = true, fallback = null })
   const m = majority(votes);
   return m.votes ? m.answer : (fallback || null);
 }
+
+// Did someone type the league passcode into the name box?
+//
+// The no-passcode join screen asks "your name?" in exactly the spot people
+// expect to be asked for the code, and Ruby typed "mball" — creating a player
+// named after the passcode that nothing in the app could then delete. Second
+// name mix-up in the league, so it's a slip worth catching rather than a
+// one-off.
+export function looksLikePasscode(name, passcode) {
+  const norm = s => String(s ?? "").trim().toLowerCase();
+  const code = norm(passcode);
+  return !!code && norm(name) === code;
+}

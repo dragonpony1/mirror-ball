@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
-import { majority, approval, propResult } from "../js/rules.js";
+import { majority, approval, propResult, looksLikePasscode } from "../js/rules.js";
 import { CAST, elimSlots } from "../js/cast.js";
 import { CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP,
          CATCHUP_POINTS, CATCHUP_OPENS, CATCHUP_CLOSES } from "../js/config.js";
@@ -287,6 +287,18 @@ const theirs = slots.filter(s => s.night === CATCHUP_NIGHT);
 is("premiere week has two elimination calls for everyone else", slots.length, 2);
 is("...and exactly one for them", theirs.length, 1);
 is("...which is Wednesday's", theirs[0].slot, 2);
+
+console.log("");
+console.log("looksLikePasscode() -- the name box is where people type the code");
+// Ruby typed "mball" as her name. dwts_players had no delete policy at the
+// time, so the stray account was permanent until Matt ran SQL by hand.
+is("the passcode typed as a name is caught", looksLikePasscode("mball", "mball"), true);
+is("case doesn't save it",                   looksLikePasscode("MBall", "mball"), true);
+is("nor does padding",                       looksLikePasscode("  mball  ", "mball"), true);
+is("a real name is fine",                    looksLikePasscode("Ruby doobey", "mball"), false);
+is("a name that merely contains it is fine", looksLikePasscode("mball fan", "mball"), false);
+is("a league with no passcode blocks nobody", looksLikePasscode("", ""), false);
+is("...even when the name is empty too",     looksLikePasscode(null, null), false);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
