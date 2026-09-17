@@ -96,6 +96,16 @@ disappears, that's the fallback firing, not a bug in the UI: check the table.
   `[hidden]{display:none!important}` for exactly that reason.
 - Supabase REST writes return EMPTY 200/201 bodies — never call `res.json()` unconditionally.
 
+## Explain the rule, never the strategy
+
+Matt's call, and it's the point of the game: the app says what the rules ARE and
+players work out what to do with them. "A week can't earn more than 14" is a rule.
+"So you may as well fill your team" is strategy, and writing it down robs the league
+of the thing they're here for. Numbers are fine — "up to 14 this week", "you can
+spend another $5,600 before that drops" are facts about the rule at this moment.
+The tell is a clause starting "so you..." or a comparative judgement (worth it,
+better, pointless). He likes the strategies that emerge; don't pre-empt them.
+
 ## Conventions
 - ES modules, no bundler. Test with `python -m http.server` from this folder
   (there's a `mirrorball` entry in `.claude/launch.json`, port 8765).

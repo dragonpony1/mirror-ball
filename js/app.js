@@ -108,6 +108,11 @@ async function loadLeague() {
   ]);
   api.listFaces().then(f => { state.faces = f || []; render(); }).catch(() => {});
   state.players = players || [];
+  // Players can be deleted since v5.0. If the person signed in on this phone is
+  // no longer in the league, every write from here on fails and the app blames
+  // their signal — a dead end they can't get out of. We already have the full
+  // roster in hand, so no extra request is needed to notice.
+  if (state.player && !state.players.some(p => p.id === state.player.id)) return dropDeadPlayer();
   state.lineups = lineups || [];
   state.elimpicks = elims || [];
   state.winnerpicks = winners || [];
@@ -879,7 +884,7 @@ function renderLineup() {
       <div class="capbar"><span style="width:${Math.min(100, ((spent + held) / weekCap) * 100).toFixed(1)}%"></span></div>
       ${mine.length ? `<p class="hint" style="margin:7px 0 0">Leftover becomes <b>🪩 ${weekBalls}</b> this week${
           freeToSpend > 0
-            ? ` — and you can still spend ${money(freeToSpend)} without losing one, so an empty slot is costing you a dancer for nothing`
+            ? ` — you can spend another ${money(freeToSpend)} before that drops`
             : ``}.</p>` : ""}
       ${heldBalls ? `<p class="hint" style="margin:7px 0 0">🪩 ${heldBalls} staked on prop bets — ${money(held)} of your cap is spoken for.</p>` : ""}
       ${dead.length ? `<p class="hint" style="margin:7px 0 0"><b style="color:var(--bad)">${
@@ -1322,7 +1327,7 @@ function renderProps() {
   let html = `<div class="balls">
     <b>🪩 ${left}</b>
     <span>Mirror Ball${left === 1 ? "" : "s"} to spend${earned !== left ? ` · ${earned} earned all season` : ""}</span>
-    <span class="hint" style="margin:5px 0 0">Every ${money(DOLLARS_PER_BALL)} of cap you don't spend becomes one — <b>up to ${ceiling} this week</b>. That ceiling is why leaving couples out never banks you more, so you may as well fill your team. They never expire.</span>
+    <span class="hint" style="margin:5px 0 0">Every ${money(DOLLARS_PER_BALL)} of cap you don't spend becomes one, <b>up to ${ceiling} this week</b> — a week can't earn more than that however many couples you pick. They never expire.</span>
   </div>`;
 
   if (!list.length) {
@@ -1832,7 +1837,7 @@ function renderRules() {
       <b>You score what the judges score.</b> Each couple is marked out of 30 by the three judges. Add up your ${baseRoster()} couples — that's your week.
     </p>
     <p class="hint" style="font-size:.9rem">
-      <b>Call the elimination for ${elimBonus()} bonus points.</b> One free pick a week: who's going home. It costs nothing and it's worth about a whole dance.
+      <b>Call the elimination for ${elimBonus()} bonus points.</b> One free pick a week: who's going home. It costs nothing and it can't go wrong — a miss just pays zero.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Everything locks when the show starts</b> — Tuesdays at 8pm Eastern. After that you can see everyone's team.
@@ -1863,10 +1868,9 @@ function renderRules() {
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Money you don't spend isn't wasted.</b> Every ${money(DOLLARS_PER_BALL)} of cap left over
-      becomes a 🪩 <b>Mirror Ball</b>. You don't need a full team to earn them — but you can't earn
-      <i>more</i> by picking fewer, because each week is capped at whatever's left after the cheapest
-      legal team. So leaving a slot empty costs you a dancer and gains you nothing. They never
-      expire, so you can hoard them for the finale.
+      becomes a 🪩 <b>Mirror Ball</b>. You don't need a full team to earn them. Each week is capped
+      at whatever's left after the cheapest legal team, so that's the most any week can bank however
+      you pick. They never expire.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Spend Mirror Balls on prop bets.</b> Side bets on the night: <i>will anyone score a 30,
@@ -2361,6 +2365,22 @@ function rememberLeague(league) {
   localStorage.setItem("dwts-league", JSON.stringify(state.league));
   state.memberships = state.memberships.map(m => m.league.id === league.id ? { ...m, league: state.league } : m);
   saveMemberships();
+}
+
+// The mirror of dropDeadLeague, for when it's the PLAYER that's gone: clear the
+// phone and hand them the pick-your-name screen rather than a wall of failures.
+async function dropDeadPlayer() {
+  const gone = state.player?.name || "That player";
+  const goneId = state.player?.id;
+  state.memberships = state.memberships.filter(m => m.player?.id !== goneId);
+  saveMemberships();
+  localStorage.removeItem("dwts-player");
+  state.player = null;
+  state.lineups = []; state.elimpicks = []; state.propbets = []; state.propvotes = []; state.propoks = [];
+  state.allLeagues = null; state.pickPlayers = null;   // make loadFrontDoor fetch again
+  await loadFrontDoor();
+  $("#banner").textContent = `“${gone}” isn't in the league any more. Tap your name to sign back in.`;
+  render();
 }
 
 function dropDeadLeague(leagueId) {
