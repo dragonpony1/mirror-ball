@@ -633,6 +633,14 @@ function stillToDo(week, playerId) {
   return todo;
 }
 
+// What the league sees someone still has to do. A team with open slots is left
+// out on purpose: leftover cap becomes Mirror Balls, so fielding fewer than a
+// full team is a legitimate choice, not an unfinished job. Only a team at all
+// and the elimination/winner calls count.
+function callsToDo(week, playerId) {
+  return stillToDo(week, playerId).filter(t => t !== "your team");
+}
+
 // "a", "a and b", "a, b and c"
 function listOut(items) {
   if (items.length <= 1) return items[0] || "";
@@ -1706,7 +1714,7 @@ function readinessHtml() {
 
   const rows = state.players.map(p => {
     const picked = lineupOf(p.id, week).length;
-    const todo = stillToDo(week, p.id);
+    const todo = callsToDo(week, p.id);
     return { p, picked, todo, state: picked === 0 ? "none" : todo.length ? "part" : "done" };
   });
   const done = rows.filter(r => r.state === "done");
@@ -1722,7 +1730,7 @@ function readinessHtml() {
     <div class="ready">
       ${done.length ? `<div class="rgroup done"><b>✓ All set — ${done.length}</b>
         <span>${done.map(r => esc(r.p.name)).join(" · ")}</span></div>` : ""}
-      ${part.length ? `<div class="rgroup part"><b>⚠ Team in, not finished — ${part.length}</b>
+      ${part.length ? `<div class="rgroup part"><b>⚠ Team in, no call yet — ${part.length}</b>
         ${part.map(r => `<span>${esc(r.p.name)} — still needs ${esc(listOut(r.todo))}</span>`).join("")}</div>` : ""}
       ${none.length ? `<div class="rgroup none"><b>✗ Nothing at all — ${none.length}</b>
         <span>${none.map(r => esc(r.p.name)).join(" · ")}</span></div>` : ""}
@@ -2486,7 +2494,7 @@ function updateTicker() {
 async function nudgeStragglers() {
   const week = state.week;
   const behind = state.players
-    .map(p => ({ p, picked: lineupOf(p.id, week).length, todo: stillToDo(week, p.id) }))
+    .map(p => ({ p, picked: lineupOf(p.id, week).length, todo: callsToDo(week, p.id) }))
     .filter(r => r.picked === 0 || r.todo.length);
   if (!behind.length) return;
   const NL = String.fromCharCode(10);
