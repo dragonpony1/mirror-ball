@@ -2104,14 +2104,16 @@ function commishOk() {
 
 // ---------- join / leagues ----------
 
-// With one league — which is the normal case — asking for a passcode is pure
-// friction, and it's what put Melissa through "rejoining" when she already had
-// an account. Fetch what exists and let her just tap her own name.
+// Asking for a passcode is pure friction for the home league, and it's what put
+// Melissa through "rejoining" when she already had an account. Fetch the home
+// league — the first one ever started — and let her just tap her own name.
+// Other leagues come in by invite link or passcode, so starting a second one
+// doesn't take the name list away from the first.
 async function loadFrontDoor() {
   if (state.allLeagues) return;
   try {
     state.allLeagues = await api.listAllLeagues() || [];
-    if (state.allLeagues.length === 1) {
+    if (state.allLeagues.length) {
       state.pickPlayers = await api.listPlayers(state.allLeagues[0].id) || [];
     }
     render();
@@ -2125,6 +2127,7 @@ async function signInAs(league, player) {
   state.memberships.push({ league, player: state.player });
   rememberLeague(league);
   state.showJoin = false;
+  state.forceJoinForm = null;
   const standalone = matchMedia("(display-mode: standalone)").matches || !!navigator.standalone;
   api.touchPlayer(player.id, standalone).catch(() => {});
   await loadLeague();
@@ -2154,8 +2157,8 @@ function renderJoin() {
     return;
   }
 
-  // Nobody signed in and exactly one league: skip the passcode entirely.
-  if (!state.player && state.allLeagues?.length === 1 && state.pickPlayers && !state.forceJoinForm) {
+  // Nobody signed in: the home league's name list, no passcode.
+  if (!state.player && state.allLeagues?.length && state.pickPlayers && !state.forceJoinForm) {
     const lg = state.allLeagues[0];
     $("#content").innerHTML = `
       <div class="join" style="text-align:center">
@@ -2167,7 +2170,11 @@ function renderJoin() {
         ${state.pickPlayers.map(p => `<button type="button" class="leaguebtn" data-me="${esc(p.id)}">${esc(p.name)}</button>`).join("")
           || `<p class="hint">Nobody's joined yet — be the first.</p>`}
         <p class="hint" style="margin-top:12px">Not on the list? <button type="button" class="linkbtn" id="imnew">I'm new here</button></p>
+        <p class="hint">In a different league? <button type="button" class="linkbtn" id="otherleague">Use its passcode</button></p>
+        <p class="hint">Want your own? <button type="button" class="linkbtn" id="ownleague">Start a new league</button></p>
       </div>`;
+    $("#otherleague").onclick = () => { state.forceJoinForm = "join"; render(); };
+    $("#ownleague").onclick = () => { state.forceJoinForm = "create"; render(); };
     $("#content").querySelectorAll("[data-me]").forEach(b => b.onclick = () => {
       const p = state.pickPlayers.find(x => x.id === b.dataset.me);
       if (p) signInAs(lg, p).catch(showError);
@@ -2184,7 +2191,8 @@ function renderJoin() {
   }
 
   $("#content").innerHTML = `
-  ${state.player && state.league ? `<p class="hint"><button type="button" class="linkbtn" id="back">← Back to ${esc(state.league.name)}</button> &nbsp;·&nbsp; <button type="button" class="linkbtn" id="renameme">Change my name</button></p>` : `
+  ${state.player && state.league ? `<p class="hint"><button type="button" class="linkbtn" id="back">← Back to ${esc(state.league.name)}</button> &nbsp;·&nbsp; <button type="button" class="linkbtn" id="renameme">Change my name</button></p>` : state.forceJoinForm ? `
+  <p class="hint"><button type="button" class="linkbtn" id="backdoor">← Back</button></p>` : `
   <div class="join" style="text-align:center">
     <div style="font-size:2.6rem">🪩</div>
     <h2 style="margin:6px 0">Fantasy Dancing with the Stars</h2>
@@ -2241,8 +2249,10 @@ function renderJoin() {
 
   if ($("#back")) $("#back").onclick = () => { state.showJoin = false; render(); };
   if ($("#renameme")) $("#renameme").onclick = renameMe;
+  if ($("#backdoor")) $("#backdoor").onclick = () => { state.forceJoinForm = null; render(); };
   $("#showcreate").onclick = () => { $("#create").hidden = false; $("#join").hidden = true; $("#findme").hidden = true; };
   $("#showfind").onclick = () => { $("#findme").hidden = false; $("#join").hidden = true; };
+  if (state.forceJoinForm === "create") { $("#create").hidden = false; $("#join").hidden = true; }
   $("#content").querySelectorAll("[data-league]").forEach(b => b.onclick = () => {
     const m = state.memberships.find(x => x.league.id === b.dataset.league);
     if (m) switchLeague(m);
@@ -2330,6 +2340,7 @@ async function joinLeague(league, name) {
   state.memberships.push({ league, player });
   rememberLeague(league);
   state.showJoin = false;
+  state.forceJoinForm = null;
   await loadLeague();
   $("#banner").textContent = `You're in ${league.name}. Build your team for ${weekLabel(state.week)}.`;
 }
