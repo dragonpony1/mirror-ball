@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
-import { majority, approval, propResult, looksLikePasscode } from "../js/rules.js";
+import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps } from "../js/rules.js";
 import { CAST, elimSlots } from "../js/cast.js";
 import { CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP,
          CATCHUP_POINTS, CATCHUP_OPENS, CATCHUP_CLOSES } from "../js/config.js";
@@ -302,6 +302,41 @@ is("a real name is fine",                    looksLikePasscode("Ruby doobey", "m
 is("a name that merely contains it is fine", looksLikePasscode("mball fan", "mball"), false);
 is("a league with no passcode blocks nobody", looksLikePasscode("", ""), false);
 is("...even when the name is empty too",     looksLikePasscode(null, null), false);
+
+console.log("");
+console.log("duplicateProp() -- the same bet must not go up twice in one week");
+// Weeks 3 and 4 each got the same prop posted twice, 1-2 seconds apart. Two
+// copies isn't just untidy: each carries its own 3-ball limit, so betting on
+// both doubles the cap. Lanee had 3 balls across week 3's pair.
+const P = [
+  { id: "a", week: 4, text: "Will the women out-score the men?", auto: "womenwin" },
+  { id: "b", week: 4, text: "Will anyone dance shirtless?",      auto: null },
+  { id: "c", week: 3, text: "Will Bruno get out of his chair?",  auto: null },
+];
+const dup = (text, auto, week) => duplicateProp({ text, auto, week, props: P })?.why ?? null;
+
+is("word-for-word in the same week",   dup("Will anyone dance shirtless?", null, 4), "same");
+is("punctuation is not a difference",  dup("will anyone dance shirtless", null, 4), "same");
+is("capitals are not a difference",    dup("WILL ANYONE DANCE SHIRTLESS?", null, 4), "same");
+is("two props that settle themselves the same way can never disagree",
+   dup("Do the ladies beat the fellas?", "womenwin", 4), "auto");
+is("the same question NEXT week is the whole point", dup("Will anyone dance shirtless?", null, 5), null);
+is("a genuinely new bet goes up",      dup("Will Derek give a 10?", null, 4), null);
+is("an auto prop of a different kind is fine", dup("Will anyone score a perfect 30?", "perfect30", 4), null);
+
+console.log("");
+console.log("similarProps() -- same bet, different words, so WARN rather than block");
+// Tuned against what the league actually wrote, not invented examples.
+const near = (text, week) => similarProps({ text, week, props: [
+  { id: "chair", week: 3, text: "Will Bruno get out of his chair?" },
+  { id: "cry",   week: 3, text: "Will a celebrity cry?" },
+  { id: "eight", week: 3, text: "Will the judges give an 8?" },
+] }).map(x => x.prop.id);
+
+is("the same Bruno bet reworded",  near("Will Bruno get out from behind the chair?", 3), ["chair"]);
+is("cry, with two words added",    near("Will a celebrity cry on camera?", 3), ["cry"]);
+is("a different judge bet is left alone", near("Will Derek give a 10?", 3), []);
+is("an unrelated bet is left alone",      near("Will anyone dance shirtless?", 3), []);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

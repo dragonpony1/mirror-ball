@@ -71,3 +71,49 @@ export function looksLikePasscode(name, passcode) {
   const code = norm(passcode);
   return !!code && norm(name) === code;
 }
+
+// ---------- one prop, once ----------
+// Week 3 and week 4 each ended up with the same bet posted twice, one or two
+// seconds apart — a double-tap, because the editor decides what's "already up"
+// when it opens and only closes after the write comes back. Two copies of one
+// question is worse than untidy: each carries its own 3-ball limit, so betting
+// on both doubles the cap. Lanee had 3 balls across week 3's pair and Grammy 2
+// across week 4's.
+
+// Punctuation and case are not the difference between two bets. "Will Carrie
+// Anne get booed" and "will carrie anne get booed?" are the same question.
+export const normProp = t =>
+  String(t ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+// A hard clash — refuse it. Same week only: asking "who scores highest" every
+// week is the point, asking it twice in one week is not.
+export function duplicateProp({ text, auto, week, props = [] }) {
+  const here = props.filter(p => p.week === week);
+  const same = here.find(p => normProp(p.text) === normProp(text));
+  if (same) return { clash: same, why: "same" };
+  // Two props that settle themselves the same way can never disagree, so a
+  // second one is pure duplication however it's worded.
+  if (auto) {
+    const twin = here.find(p => p.auto === auto);
+    if (twin) return { clash: twin, why: "auto" };
+  }
+  return null;
+}
+
+// A soft warning — "Will Bruno get out of his chair?" against "Will Bruno get
+// out from behind the desk". Might be the same bet, might not; that's a
+// judgement for the person writing it, not for the app.
+export function similarProps({ text, week, props = [], min = 0.5 }) {
+  const words = s => new Set(normProp(s).split(" ").filter(w => w.length > 2));
+  const mine = words(text);
+  if (!mine.size) return [];
+  return props
+    .filter(p => p.week === week && normProp(p.text) !== normProp(text))
+    .map(p => {
+      const theirs = words(p.text);
+      const shared = [...mine].filter(w => theirs.has(w)).length;
+      return { prop: p, score: shared / new Set([...mine, ...theirs]).size };
+    })
+    .filter(x => x.score >= min)
+    .sort((a, b) => b.score - a.score);
+}

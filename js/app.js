@@ -4,7 +4,7 @@ import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BON
          CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP, CATCHUP_POINTS,
          CATCHUP_OPENS, CATCHUP_CLOSES } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
-import { majority, approval, propResult, looksLikePasscode } from "./rules.js";
+import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps, normProp } from "./rules.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -1935,12 +1935,12 @@ function renderRules() {
 
 function openPropEditor() {
   const week = state.week;
-  const used = new Set(propsIn(week).map(p => p.text));
+  const used = new Set(propsIn(week).map(p => normProp(p.text)));
   $("#commish").innerHTML = `
     <h2>Add a prop bet — ${weekLabel(week)}</h2>
     <p class="hint">Anyone can add one. The first three settle themselves from the judges' scores, so nobody has to rule on them.</p>
     <div id="starters">
-      ${STARTER_PROPS.filter(p => !used.has(p.text)).map((p, i) => `<button type="button" class="leaguebtn" data-starter="${i}">
+      ${STARTER_PROPS.filter(p => !used.has(normProp(p.text))).map((p, i) => `<button type="button" class="leaguebtn" data-starter="${i}">
         ${esc(p.text)}
         <small>${p.auto ? "⚡ settles itself" : "someone taps yes/no after the show"} · pays ${p.kind === "couple" ? PAYS_COUPLE : PAYS_YESNO} a ball</small>
       </button>`).join("") || `<p class="hint">All the ready-made ones are already up this week.</p>`}
@@ -1957,7 +1957,7 @@ function openPropEditor() {
   $("#commishmodal").hidden = false;
 
   $("#commish").querySelectorAll("[data-starter]").forEach(b => b.onclick = () => {
-    const pick = STARTER_PROPS.filter(p => !used.has(p.text))[Number(b.dataset.starter)];
+    const pick = STARTER_PROPS.filter(p => !used.has(normProp(p.text)))[Number(b.dataset.starter)];
     createProp(pick.text, pick.kind, pick.auto);
   });
   $("#savemyprop").onclick = () => {
@@ -1967,8 +1967,39 @@ function openPropEditor() {
   };
 }
 
+// One tap, one prop. The editor works out what's already up when it OPENS and
+// only closes once the write comes back, so a second tap in that gap posted the
+// same bet twice — that's how weeks 3 and 4 each got a pair a second apart.
+let addingProp = false;
+
 async function createProp(text, kind, auto) {
+  if (addingProp) return;
+  addingProp = true;
+  $("#commish").querySelectorAll("button").forEach(b => b.disabled = true);
+  const unblock = () => {
+    addingProp = false;
+    $("#commish").querySelectorAll("button").forEach(b => b.disabled = false);
+  };
   try {
+    // Our list could be minutes old, and someone else may have posted the same
+    // bet from their own phone seconds ago.
+    state.props = await api.listProps(state.league.id) || state.props;
+
+    const dup = duplicateProp({ text, auto, week: state.week, props: state.props });
+    if (dup) {
+      $("#propmsg").textContent = dup.why === "auto"
+        ? `“${dup.clash.text}” is already up this week and settles itself the same way — a second one can't say anything different.`
+        : `“${dup.clash.text}” is already up this week.`;
+      return unblock();
+    }
+    // Same bet, different words. Might be deliberate, so it's their call.
+    const near = similarProps({ text, week: state.week, props: state.props })[0];
+    if (near && !confirm(`“${near.prop.text}” is already up this week.
+
+Add “${text}” as well?`)) {
+      $("#propmsg").textContent = "Left it as it was.";
+      return unblock();
+    }
     const row = await api.addProp(state.league.id, state.week, {
       text, kind, auto, pays: kind === "couple" ? PAYS_COUPLE : PAYS_YESNO,
     });
@@ -1987,6 +2018,7 @@ async function createProp(text, kind, auto) {
       ? `"${text}" is up — ${appr.bar - 1} more ${appr.bar - 1 === 1 ? "person has" : "people have"} to call it a fair bet before anyone can bet on it.`
       : `"${text}" is up for ${weekLabel(state.week)}.`;
   } catch (e) { $("#propmsg").textContent = "Couldn't add that one."; console.error(e); }
+  finally { unblock(); }
 }
 
 // Only the props a person has to rule on; the automatic ones never appear here.
