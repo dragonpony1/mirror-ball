@@ -43,7 +43,14 @@ const DRY = has("--dry");
 // Result column is still blank, so an authoritative pass would cheerfully
 // un-eliminate someone a viewer had already correctly marked as going home.
 // It also keeps quiet: nobody needs a chat message every twenty minutes.
+// And it never marks anyone as going home: Mountain time watches an hour behind
+// the live feed, so a mid-show elimination is a spoiler. That waits for the
+// morning pass.
 const LIVE = has("--live");
+// Un-marks every elimination this script wrote for one week, then stops.
+// For a spoiler that got out before the whole league had seen the show; the
+// next morning pass puts it back.
+const HIDE_HOME = val("--hide-home") ? Number(val("--hide-home")) : null;
 const ONLY_WEEK = val("--week") ? Number(val("--week")) : null;
 const PAGE = val("--page", `Dancing_with_the_Stars_(American_TV_series)_season_${SEASON}`);
 
@@ -174,13 +181,14 @@ const saveScores = rows => rest("dwts_scores", {
 // passes run every few minutes while the show is still on, when the page is
 // half-written, so they only ever ADD: an elimination someone already marked
 // stays marked, and a score someone already typed is never blanked just
-// because Wikipedia hasn't caught up. Exported so it can be tested — this is
+// because Wikipedia hasn't caught up. They never ADD an elimination either —
+// that's a spoiler while some of the league is still watching. Exported so it can be tested — this is
 // the subtlest rule in the project and the easiest to break by accident.
 export function reconcile(cur, truth, live) {
   if (!live) return { score: truth.score, eliminated: truth.eliminated };
   return {
     score: truth.score == null ? (cur?.score ?? null) : truth.score,
-    eliminated: !!cur?.eliminated || truth.eliminated,
+    eliminated: !!cur?.eliminated,
   };
 }
 
@@ -291,7 +299,18 @@ function writeStepSummary(text) {
 
 // Imported by the tests; only actually audit when run directly.
 const RUN_DIRECTLY = process.argv[1] && process.argv[1].endsWith("audit-scores.mjs");
-if (RUN_DIRECTLY) main()
+if (RUN_DIRECTLY && HIDE_HOME) {
+  rest(`dwts_scores?season=eq.${SEASON}&week=eq.${HIDE_HOME}&eliminated=eq.true&entered_by=eq.${encodeURIComponent("Wikipedia check")}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ eliminated: false }),
+  }).then(rows => {
+    const names = (rows || []).map(r => nameOf(r.couple_id));
+    console.log(names.length
+      ? `Hid week ${HIDE_HOME}'s elimination: ${names.join(", ")} un-marked until the morning pass.`
+      : `Nothing to hide in week ${HIDE_HOME} — the score check hadn't marked anyone as going home.`);
+  }).catch(e => { console.error(e.message); process.exit(1); });
+} else if (RUN_DIRECTLY) main()
   .then(({ changes = [], checked = 0, notice }) => {
     writeStepSummary(changes.length
       ? `### 🪩 Fixed ${changes.length} score(s)\n\n${notice}\n\n` +

@@ -32,8 +32,11 @@ is("live keeps a typed score the page hasn't got yet",
 is("live still applies a genuine correction",
    reconcile({ score: 19, eliminated: false }, { score: 21, eliminated: false }, true),
    { score: 21, eliminated: false });
-is("live still adds an elimination the page confirms",
+is("live never marks anyone as going home -- a spoiler for anyone still watching",
    reconcile({ score: 24, eliminated: false }, { score: 24, eliminated: true }, true),
+   { score: 24, eliminated: false });
+is("...the morning pass does",
+   reconcile({ score: 24, eliminated: false }, { score: 24, eliminated: true }, false),
    { score: 24, eliminated: true });
 is("live fills a row nobody entered",
    reconcile(undefined, { score: 22, eliminated: false }, true),

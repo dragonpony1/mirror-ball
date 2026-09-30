@@ -29,6 +29,10 @@ on:
         description: "Quiet additive pass (no chat post)"
         type: boolean
         default: false
+      hide_home_week:
+        description: "Only un-mark this week's elimination (a spoiler) until the morning pass"
+        type: string
+        default: ""
 
 # Runs overlap by design at 13:00; never let two fight over the same rows.
 concurrency:
@@ -48,7 +52,9 @@ jobs:
       - name: Decide which kind of pass this is
         id: mode
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ inputs.hide_home_week }}" ]; then
+            echo "flag=--hide-home ${{ inputs.hide_home_week }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             [ "${{ inputs.live }}" = "true" ] && echo "flag=--live" >> $GITHUB_OUTPUT || echo "flag=" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.schedule }}" = "0 13 * * 3,4" ] || [ "${{ github.event.schedule }}" = "0 13 * * 5" ]; then
             echo "flag=" >> $GITHUB_OUTPUT
