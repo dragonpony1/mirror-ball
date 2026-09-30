@@ -57,7 +57,9 @@ jobs:
           fi
 
       - name: Tests
-        run: node tests/test-all.mjs
+        # The flag is needed for the parse check; without it five tests fail and
+        # the scores never get checked.
+        run: node --experimental-vm-modules tests/test-all.mjs
 
       - name: Compare with the official scores
         run: node scripts/audit-scores.mjs ${{ steps.mode.outputs.flag }}
