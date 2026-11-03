@@ -4,7 +4,7 @@ import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BON
          CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP, CATCHUP_POINTS,
          CATCHUP_OPENS, CATCHUP_CLOSES } from "./config.js";
 import { CAST, byId, initials, TOTAL_WEEKS, weekLabel, elimSlots } from "./cast.js";
-import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps, normProp } from "./rules.js";
+import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps, normProp, outOf } from "./rules.js";
 import * as api from "./api.js";
 
 const $ = s => document.querySelector(s);
@@ -147,6 +147,8 @@ const scoreFor = (week, coupleId) => {
   return r && r.score != null ? r.score : null;
 };
 const elimsIn = week => state.scores.filter(s => s.week === week && s.eliminated).map(s => s.couple_id);
+// 30 with three judges, 40 the weeks a fourth sits in.
+const topScore = week => outOf(state.scores.filter(s => s.week === week).map(s => s.score));
 // Out of the competition by the start of `week` — eliminated in any earlier week.
 const isOut = (coupleId, week) => state.scores.some(s => s.couple_id === coupleId && s.eliminated && s.week < week);
 const activeCast = week => CAST.filter(c => !isOut(c.id, week));
@@ -405,7 +407,8 @@ function autoWinners(prop) {
   if (!scored.length) return null;
   const gone = elimsIn(wk);
 
-  if (prop.auto === "perfect30") return new Set([scored.some(x => x.s === 30) ? "yes" : "no"]);
+  // Key kept as "perfect30" so old props still settle; it means all 10s.
+  if (prop.auto === "perfect30") return new Set([scored.some(x => x.s === topScore(wk)) ? "yes" : "no"]);
   if (prop.auto === "top") {
     const best = Math.max(...scored.map(x => x.s));
     return new Set(scored.filter(x => x.s === best).map(x => x.id));
@@ -474,7 +477,7 @@ function propPoints(playerId, prop) {
 // What the app offers when the commissioner adds a prop. The first three need
 // nobody to rule on them at all.
 const STARTER_PROPS = [
-  { text: "Will anyone score a perfect 30?",            kind: "yesno",  auto: "perfect30" },
+  { text: "Will anyone get a perfect score — all 10s?", kind: "yesno",  auto: "perfect30" },
   { text: "Will the women out-score the men?",          kind: "yesno",  auto: "womenwin" },
   { text: "Who scores highest tonight?",                kind: "couple", auto: "top" },
   { text: "Will the lowest scorer go home?",            kind: "yesno",  auto: "lowgoes" },
@@ -936,7 +939,7 @@ function renderLineup() {
         <b>How this works</b>
         <ol>
           <li>Pick <b>${roster} couples</b> below. Better dancers cost more, and ${money(weekCap)} isn't enough for ${roster} of the best — that's the game.</li>
-          <li>The judges score each couple <b>out of 30</b>. You get whatever they get. Your ${roster} added together is your week.</li>
+          <li>The judges score each couple <b>out of 30</b> (40 on a night with a fourth judge). You get whatever they get. Your ${roster} added together is your week.</li>
           <li>Then call <b>who goes home</b>${elimSlotsFor(week).length > 1
             ? ` — <b>two calls</b> premiere week, one for Tuesday's men and one for Wednesday's women. ${elimBonus()} points each`
             : ` for ${elimBonus()} bonus points`}. It's free and doesn't use your budget.</li>
@@ -1211,7 +1214,7 @@ function teamCardHtml(playerId, week, isMe) {
         ${gone ? `<span class="gonehome">went home</span>` : ""}</span>
       ${s == null
         ? `<span class="price"><small>hasn't danced</small></span>`
-        : `<span class="scorepill ${s === 30 ? "perfect" : ""}">${s}<small>out of 30</small></span>`}
+        : `<span class="scorepill ${s === topScore(week) ? "perfect" : ""}">${s}<small>out of ${topScore(week)}</small></span>`}
     </div>`;
   }
   html += `</div>`;
@@ -1533,8 +1536,8 @@ function renderBallroom() {
                    data-live="${esc(c.id)}" value="${s ?? ""}" placeholder="—" aria-label="Score for ${esc(c.celeb)}">
             <button type="button" class="homebtn ${gone ? "on" : ""}" data-home="${esc(c.id)}" title="Went home">🏠</button>
           </span>`
-          : s === 30 ? `<span class="paddles"><span class="paddle ten">10</span><span class="paddle ten">10</span><span class="paddle ten">10</span></span>`
-          : `<span class="scorepill">${s}<small>out of 30</small></span>`}
+          : s === topScore(week) ? `<span class="paddles">${'<span class="paddle ten">10</span>'.repeat(topScore(week) / 10)}</span>`
+          : `<span class="scorepill">${s}<small>out of ${topScore(week)}</small></span>`}
       </div>`;
     }
     html += `</div>`;
@@ -1576,7 +1579,7 @@ async function saveOneScore(week, coupleId, raw) {
   render();
   try {
     await api.saveScores([{ week, couple_id: coupleId, score, eliminated: gone, entered_by: state.player.name }]);
-    if (score === 30) confetti();
+    if (score === topScore(week)) confetti();
   } catch (e) { restoreScore(week, coupleId, prev); render(); showError(e); }
 }
 
@@ -1842,7 +1845,7 @@ function renderRules() {
       <b>Build a team of ${baseRoster()} couples</b> every week for ${money(baseCap())} or less. The good dancers cost more.
     </p>
     <p class="hint" style="font-size:.9rem">
-      <b>You score what the judges score.</b> Each couple is marked out of 30 by the three judges. Add up your ${baseRoster()} couples — that's your week.
+      <b>You score what the judges score.</b> Each couple is marked out of 30 by the three judges — out of 40 on a night a fourth judge joins. Add up your ${baseRoster()} couples — that's your week.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Call the elimination for ${elimBonus()} bonus points.</b> One free pick a week: who's going home. It costs nothing and it can't go wrong — a miss just pays zero.
@@ -1881,7 +1884,7 @@ function renderRules() {
       you pick. They never expire.
     </p>
     <p class="hint" style="font-size:.9rem">
-      <b>Spend Mirror Balls on prop bets.</b> Side bets on the night: <i>will anyone score a 30,
+      <b>Spend Mirror Balls on prop bets.</b> Side bets on the night: <i>will anyone get a perfect score,
       will Carrie Ann mention a lift, who tops the leaderboard.</i> Stake 1 to ${MAX_BALLS_PER_PROP}
       balls on any one. A yes/no pays <b>${PAYS_YESNO} a ball</b>; naming a couple is much harder
       and pays <b>${PAYS_COUPLE} a ball</b>. Wrong and you lose the balls, not points.
@@ -1922,7 +1925,7 @@ function renderRules() {
   </div>
 
   <h2>Who types in the scores?</h2>
-  <p class="hint">Anyone in the league. During or after the show, open <b>Ballroom</b> and type each couple's total out of 30 and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo. A check runs the next morning against the official scores and quietly fixes any slips.</p>
+  <p class="hint">Anyone in the league. During or after the show, open <b>Ballroom</b> and type each couple's total (out of 30, or 40 with a fourth judge) and tick whoever went home. Your name gets stamped on it, and anyone can fix a typo. A check runs the next morning against the official scores and quietly fixes any slips.</p>
   <hr>
   <p class="hint" style="text-align:center">
     <button type="button" class="linkbtn" id="openCommish">Week settings</button>

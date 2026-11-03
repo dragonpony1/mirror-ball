@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
-import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps } from "../js/rules.js";
+import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps, outOf } from "../js/rules.js";
 import { CAST, elimSlots, defaultLock } from "../js/cast.js";
 import { CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP,
          CATCHUP_POINTS, CATCHUP_OPENS, CATCHUP_CLOSES } from "../js/config.js";
@@ -337,6 +337,11 @@ is("the same Bruno bet reworded",  near("Will Bruno get out from behind the chai
 is("cry, with two words added",    near("Will a celebrity cry on camera?", 3), ["cry"]);
 is("a different judge bet is left alone", near("Will Derek give a 10?", 3), []);
 is("an unrelated bet is left alone",      near("Will anyone dance shirtless?", 3), []);
+
+console.log("\na perfect score is all 10s -- three judges or four");
+is("three judges: 30 is perfect", outOf([30, 24, 21]), 30);
+is("a fourth judge: 40 is perfect", outOf([40, 34, 32, 40]), 40);
+is("blanks don't count", outOf([null, 28]), 30);
 
 console.log("\nthe lock is 8pm on the Eastern clock, daylight time or not");
 is("week 1 is unchanged -- 8pm EDT", defaultLock(1).toISOString(), "2026-09-16T00:00:00.000Z");

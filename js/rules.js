@@ -117,3 +117,12 @@ export function similarProps({ text, week, props = [], min = 0.5 }) {
     .filter(x => x.score >= min)
     .sort((a, b) => b.score - a.score);
 }
+
+// ---------- what a perfect score is this week ----------
+// Three judges most weeks, so 30 is perfect; some weeks bring a fourth and the
+// top is 40. Nothing on the show's page says which, so it's read off the scores:
+// anything over 30 means four judges. The one week this misjudges is a
+// four-judge night where nobody cleared 30 — and then nobody got all 10s either.
+export function outOf(weekScores = []) {
+  return weekScores.some(s => s != null && s > 30) ? 40 : 30;
+}
