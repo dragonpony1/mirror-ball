@@ -46,15 +46,32 @@ export function initials(c) {
 export const TOTAL_WEEKS = 12;
 
 // Tue Sept 15, 2026, 8:00pm Eastern = 00:00 UTC on Sept 16 (EDT, UTC-4).
+// Every lock is 8pm on the Eastern clock, so it moves an hour in UTC when the
+// clocks change: 00:00 UTC under daylight time, 01:00 UTC under standard time.
+// A fixed UTC time would lock at 7pm Eastern from November on — an hour before
+// the show.
 //
 // NOTE: Mountain and Central affiliates air network primetime an hour behind the
 // live Eastern feed, so an 8pm ET lock shuts a Denver league out a full hour
 // before their show starts. Week 1's lock was overridden to 7pm MT on the night
 // for exactly that reason. Override the lock per week rather than moving this.
-const PREMIERE_UTC = Date.UTC(2026, 8, 16, 0, 0, 0);
 
 export function defaultLock(week) {
-  return new Date(PREMIERE_UTC + (week - 1) * 7 * 24 * 60 * 60 * 1000);
+  const tue = new Date(Date.UTC(2026, 8, 15 + (week - 1) * 7));   // that week's Tuesday
+  const y = tue.getUTCFullYear(), m = tue.getUTCMonth(), d = tue.getUTCDate();
+  const offset = easternDaylight(y, m, d) ? 4 : 5;                // hours behind UTC
+  return new Date(Date.UTC(y, m, d, 20 + offset));
+}
+
+// US daylight time: second Sunday of March to first Sunday of November. Done by
+// hand rather than with Intl so every phone gets the same answer.
+function easternDaylight(y, m, d) {
+  const nthSunday = (month, n) => {
+    const first = new Date(Date.UTC(y, month, 1)).getUTCDay();
+    return 1 + ((7 - first) % 7) + (n - 1) * 7;
+  };
+  const day = Date.UTC(y, m, d);
+  return day >= Date.UTC(y, 2, nthSunday(2, 2)) && day < Date.UTC(y, 10, nthSunday(10, 1));
 }
 
 export function weekLabel(week) {

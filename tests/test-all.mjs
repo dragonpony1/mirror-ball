@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { reconcile } from "../scripts/audit-scores.mjs";
 import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps } from "../js/rules.js";
-import { CAST, elimSlots } from "../js/cast.js";
+import { CAST, elimSlots, defaultLock } from "../js/cast.js";
 import { CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP,
          CATCHUP_POINTS, CATCHUP_OPENS, CATCHUP_CLOSES } from "../js/config.js";
 
@@ -337,6 +337,12 @@ is("the same Bruno bet reworded",  near("Will Bruno get out from behind the chai
 is("cry, with two words added",    near("Will a celebrity cry on camera?", 3), ["cry"]);
 is("a different judge bet is left alone", near("Will Derek give a 10?", 3), []);
 is("an unrelated bet is left alone",      near("Will anyone dance shirtless?", 3), []);
+
+console.log("\nthe lock is 8pm on the Eastern clock, daylight time or not");
+is("week 1 is unchanged -- 8pm EDT", defaultLock(1).toISOString(), "2026-09-16T00:00:00.000Z");
+is("the last daylight-time week is 8pm EDT", defaultLock(7).toISOString(), "2026-10-28T00:00:00.000Z");
+is("the first week after the clocks go back is 8pm EST, not 7pm", defaultLock(8).toISOString(), "2026-11-04T01:00:00.000Z");
+is("...and so is the rest of the season", defaultLock(12).toISOString(), "2026-12-02T01:00:00.000Z");
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
