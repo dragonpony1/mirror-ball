@@ -51,6 +51,9 @@ const LIVE = has("--live");
 // For a spoiler that got out before the whole league had seen the show; the
 // next morning pass puts it back.
 const HIDE_HOME = val("--hide-home") ? Number(val("--hide-home")) : null;
+// Moves one week's lock, for a show ABC moved off its Tuesday. "--set-lock 8
+// 2026-11-03T01:00:00Z" — the app has no screen for this.
+const SET_LOCK = val("--set-lock") ? Number(val("--set-lock")) : null;
 const ONLY_WEEK = val("--week") ? Number(val("--week")) : null;
 const PAGE = val("--page", `Dancing_with_the_Stars_(American_TV_series)_season_${SEASON}`);
 
@@ -299,7 +302,17 @@ function writeStepSummary(text) {
 
 // Imported by the tests; only actually audit when run directly.
 const RUN_DIRECTLY = process.argv[1] && process.argv[1].endsWith("audit-scores.mjs");
-if (RUN_DIRECTLY && HIDE_HOME) {
+if (RUN_DIRECTLY && SET_LOCK) {
+  const at = new Date(args[args.indexOf("--set-lock") + 2]);
+  if (isNaN(at)) { console.error("--set-lock needs a week and a time"); process.exit(1); }
+  rest("dwts_weeks", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ season: SEASON, week: SET_LOCK, lock_at: at.toISOString() }),
+  }).then(rows => console.log(`Week ${SET_LOCK} now locks at ${rows?.[0]?.lock_at || at.toISOString()} ` +
+      `(${at.toLocaleString("en-US", { timeZone: "America/New_York" })} Eastern).`))
+    .catch(e => { console.error(e.message); process.exit(1); });
+} else if (RUN_DIRECTLY && HIDE_HOME) {
   rest(`dwts_scores?season=eq.${SEASON}&week=eq.${HIDE_HOME}&eliminated=eq.true&entered_by=eq.${encodeURIComponent("Wikipedia check")}`, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
