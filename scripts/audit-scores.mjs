@@ -54,6 +54,9 @@ const HIDE_HOME = val("--hide-home") ? Number(val("--hide-home")) : null;
 // Moves one week's lock, for a show ABC moved off its Tuesday. "--set-lock 8
 // 2026-11-03T01:00:00Z" — the app has no screen for this.
 const SET_LOCK = val("--set-lock") ? Number(val("--set-lock")) : null;
+// Read-only: prints one week's props, how each is settled, and the vote and
+// bet counts, so a "the app paid the wrong side" report can be checked.
+const SHOW_PROPS = val("--show-props") ? Number(val("--show-props")) : null;
 const ONLY_WEEK = val("--week") ? Number(val("--week")) : null;
 const PAGE = val("--page", `Dancing_with_the_Stars_(American_TV_series)_season_${SEASON}`);
 
@@ -302,7 +305,24 @@ function writeStepSummary(text) {
 
 // Imported by the tests; only actually audit when run directly.
 const RUN_DIRECTLY = process.argv[1] && process.argv[1].endsWith("audit-scores.mjs");
-if (RUN_DIRECTLY && SET_LOCK) {
+if (RUN_DIRECTLY && SHOW_PROPS) {
+  (async () => {
+    const leagues = await listLeagues();
+    const lname = id => leagues.find(l => l.id === id)?.name || id;
+    const props = await rest(`dwts_props?season=eq.${SEASON}&week=eq.${SHOW_PROPS}&select=id,league_id,text,kind,auto,answer,created_at`);
+    const scores = (await listScores()).filter(r => r.week === SHOW_PROPS);
+    console.log(`Week ${SHOW_PROPS} scores: ${scores.map(r => `${nameOf(r.couple_id)} ${r.score}${r.eliminated ? " (home)" : ""}`).join(", ")}`);
+    for (const p of props || []) {
+      const votes = await rest(`dwts_propvotes?prop_id=eq.${p.id}&select=answer`).catch(() => []);
+      const bets = await rest(`dwts_propbets?prop_id=eq.${p.id}&select=answer,balls`).catch(() => []);
+      const tally = xs => Object.entries(xs.reduce((t, x) => ({ ...t, [x.answer]: (t[x.answer] || 0) + 1 }), {}))
+        .map(([a, n]) => `${a} ${n}`).join(", ") || "none";
+      console.log(`- [${lname(p.league_id)}] "${p.text}" — ${p.auto ? `settles itself (${p.auto})` : "settled by votes"}` +
+        ` · votes: ${tally(votes || [])} · bets: ${tally(bets || [])}${p.answer ? ` · old answer: ${p.answer}` : ""}`);
+    }
+    if (!props?.length) console.log(`No props in week ${SHOW_PROPS}.`);
+  })().catch(e => { console.error(e.message); process.exit(1); });
+} else if (RUN_DIRECTLY && SET_LOCK) {
   const at = new Date(args[args.indexOf("--set-lock") + 2]);
   if (isNaN(at)) { console.error("--set-lock needs a week and a time"); process.exit(1); }
   rest("dwts_weeks", {

@@ -29,6 +29,10 @@ on:
         description: "Quiet additive pass (no chat post)"
         type: boolean
         default: false
+      show_props:
+        description: "Read-only: list one week's props, votes and bets"
+        type: string
+        default: ""
       set_lock:
         description: "Only move one week's lock: week and UTC time, e.g. 8 2026-11-03T01:00:00Z"
         type: string
@@ -56,7 +60,9 @@ jobs:
       - name: Decide which kind of pass this is
         id: mode
         run: |
-          if [ -n "${{ inputs.set_lock }}" ]; then
+          if [ -n "${{ inputs.show_props }}" ]; then
+            echo "flag=--show-props ${{ inputs.show_props }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ inputs.set_lock }}" ]; then
             echo "flag=--set-lock ${{ inputs.set_lock }}" >> $GITHUB_OUTPUT
           elif [ -n "${{ inputs.hide_home_week }}" ]; then
             echo "flag=--hide-home ${{ inputs.hide_home_week }}" >> $GITHUB_OUTPUT
