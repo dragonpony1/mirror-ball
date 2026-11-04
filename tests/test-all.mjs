@@ -100,12 +100,12 @@ is("a tie on top scorer pays anyone who named a tied couple",
 is("a good props week is a swing, not a replacement",
    4 * PAYS_YESNO < (5 * 24) / 2, true);
 
-console.log("\npremiere: did the women out-score the men?");
-// Mirrors autoWinners('womenwin'). Must stay unsettled until BOTH nights are in.
+console.log("\ndid the women out-score the men? (grand totals)");
+// Mirrors autoWinners('womenwin'). Must stay unsettled until BOTH sides are in.
 const womenWin = (rows) => {
-  const avg = n => { const xs = rows.filter(r => r.night === n && r.s != null);
-    return xs.length ? xs.reduce((t, r) => t + r.s, 0) / xs.length : null; };
-  const w = avg(2), m = avg(1);
+  const total = n => { const xs = rows.filter(r => r.night === n && r.s != null);
+    return xs.length ? xs.reduce((t, r) => t + r.s, 0) : null; };
+  const w = total(2), m = total(1);
   return (w == null || m == null) ? null : (w > m ? "yes" : "no");
 };
 is("women ahead -> yes", womenWin([{night:1,s:18},{night:2,s:22}]), "yes");
@@ -113,6 +113,9 @@ is("men ahead -> no",    womenWin([{night:1,s:24},{night:2,s:20}]), "no");
 is("dead level -> no",   womenWin([{night:1,s:20},{night:2,s:20}]), "no");
 is("only Tuesday scored: NOT settled yet", womenWin([{night:1,s:18}]), null);
 is("only Wednesday scored: NOT settled yet", womenWin([{night:2,s:18}]), null);
+is("totals, not averages -- week 8: five women 172, three men 109",
+   womenWin([{night:1,s:40},{night:1,s:37},{night:1,s:32},
+             {night:2,s:40},{night:2,s:34},{night:2,s:33},{night:2,s:33},{night:2,s:32}]), "yes");
 
 console.log("\nyou cannot bet Mirror Balls and then spend the money too");
 const balance = (cap, spent, picked, cheapestTeam, staked) =>

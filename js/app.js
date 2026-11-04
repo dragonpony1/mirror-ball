@@ -413,15 +413,17 @@ function autoWinners(prop) {
     const best = Math.max(...scored.map(x => x.s));
     return new Set(scored.filter(x => x.s === best).map(x => x.id));
   }
-  // Premiere-only: the men danced Tuesday and the women Wednesday, so which
-  // night scored better is a real question. Stays unsettled until BOTH nights
-  // are in, because a half-scored week would answer it wrongly.
+  // The women's grand total against the men's — every couple who danced that
+  // week, added up. Totals, not averages: the league's call, so the side with
+  // more couples still in has the edge. (`night` is 1 for the men, 2 for the
+  // women — the premiere split them that way.) Stays unsettled until BOTH
+  // sides have danced, because a half-scored week would answer it wrongly.
   if (prop.auto === "womenwin") {
-    const avg = n => {
+    const total = n => {
       const xs = scored.filter(x => byId(x.id)?.night === n);
-      return xs.length ? xs.reduce((t, x) => t + x.s, 0) / xs.length : null;
+      return xs.length ? xs.reduce((t, x) => t + x.s, 0) : null;
     };
-    const women = avg(2), men = avg(1);
+    const women = total(2), men = total(1);
     if (women == null || men == null) return null;
     return new Set([women > men ? "yes" : "no"]);
   }
@@ -1363,7 +1365,7 @@ function renderProps() {
         <b>${esc(prop.text)}</b>
         <span class="pays">${pays}<small>a ball</small></span>
       </div>
-      ${prop.auto ? `<span class="tag auto">settles itself from the scores</span>` : ""}
+      ${prop.auto ? `<span class="tag auto">${prop.auto === "womenwin" ? "settles itself — the women's total against the men's" : "settles itself from the scores"}</span>` : ""}
       <div class="propopts">
         ${options.map(o => `<button type="button" class="opt ${bet?.answer === o.v ? "on" : ""} ${win && win.has(o.v) ? "right" : ""}"
           data-prop="${esc(prop.id)}" data-answer="${esc(o.v)}" ${win || !open || !appr.ok ? "disabled" : ""}>${esc(o.label)}</button>`).join("")}
