@@ -147,7 +147,8 @@ const scoreFor = (week, coupleId) => {
   return r && r.score != null ? r.score : null;
 };
 const elimsIn = week => state.scores.filter(s => s.week === week && s.eliminated).map(s => s.couple_id);
-// 30 with three judges, 40 the weeks a fourth sits in.
+// 30 with three judges, 40 the weeks a fourth sits in, null when couples
+// danced more than once that week.
 const topScore = week => outOf(state.scores.filter(s => s.week === week).map(s => s.score));
 // Out of the competition by the start of `week` — eliminated in any earlier week.
 const isOut = (coupleId, week) => state.scores.some(s => s.couple_id === coupleId && s.eliminated && s.week < week);
@@ -407,8 +408,12 @@ function autoWinners(prop) {
   if (!scored.length) return null;
   const gone = elimsIn(wk);
 
-  // Key kept as "perfect30" so old props still settle; it means all 10s.
-  if (prop.auto === "perfect30") return new Set([scored.some(x => x.s === topScore(wk)) ? "yes" : "no"]);
+  // Key kept as "perfect30" so old props still settle; it means all 10s. A week
+  // with team dances added in can't say, so that one is left for the league.
+  if (prop.auto === "perfect30") {
+    if (!topScore(wk)) return null;
+    return new Set([scored.some(x => x.s === topScore(wk)) ? "yes" : "no"]);
+  }
   if (prop.auto === "top") {
     const best = Math.max(...scored.map(x => x.s));
     return new Set(scored.filter(x => x.s === best).map(x => x.id));
@@ -1216,7 +1221,7 @@ function teamCardHtml(playerId, week, isMe) {
         ${gone ? `<span class="gonehome">went home</span>` : ""}</span>
       ${s == null
         ? `<span class="price"><small>hasn't danced</small></span>`
-        : `<span class="scorepill ${s === topScore(week) ? "perfect" : ""}">${s}<small>out of ${topScore(week)}</small></span>`}
+        : `<span class="scorepill ${s === topScore(week) ? "perfect" : ""}">${s}<small>${topScore(week) ? `out of ${topScore(week)}` : "points"}</small></span>`}
     </div>`;
   }
   html += `</div>`;
@@ -1539,7 +1544,7 @@ function renderBallroom() {
             <button type="button" class="homebtn ${gone ? "on" : ""}" data-home="${esc(c.id)}" title="Went home">🏠</button>
           </span>`
           : s === topScore(week) ? `<span class="paddles">${'<span class="paddle ten">10</span>'.repeat(topScore(week) / 10)}</span>`
-          : `<span class="scorepill">${s}<small>out of ${topScore(week)}</small></span>`}
+          : `<span class="scorepill">${s}<small>${topScore(week) ? `out of ${topScore(week)}` : "points"}</small></span>`}
       </div>`;
     }
     html += `</div>`;

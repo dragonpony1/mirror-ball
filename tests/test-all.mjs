@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { reconcile } from "../scripts/audit-scores.mjs";
+import { reconcile, foldWeek } from "../scripts/audit-scores.mjs";
 import { majority, approval, propResult, looksLikePasscode, duplicateProp, similarProps, outOf } from "../js/rules.js";
 import { CAST, elimSlots, defaultLock } from "../js/cast.js";
 import { CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP,
@@ -345,6 +345,22 @@ console.log("\na perfect score is all 10s -- three judges or four");
 is("three judges: 30 is perfect", outOf([30, 24, 21]), 30);
 is("a fourth judge: 40 is perfect", outOf([40, 34, 32, 40]), 40);
 is("blanks don't count", outOf([null, 28]), 30);
+is("a team dance on top: no single top, so no 'perfect'", outOf([78, 70, 65]), null);
+
+console.log("\nteam dances count for every couple on the team");
+{
+  const { byCouple, unmatched } = foldWeek([
+    { couple: "Amber & Pasha", total: 34, eliminated: false },
+    { couple: "Julia & Ezra", total: 33, eliminated: true },
+    { couple: "Alfonso Ribeiro Amber & Pasha Julia & Ezra Maura & Mark Tatyana & Jan", total: 36, eliminated: false },
+    { couple: "Julianne Hough Connor & Rylee Ezra & Daniella Harry & Jenna Jenna & Val", total: 38, eliminated: false },
+  ]);
+  is("own dance + team dance", byCouple.get("glenn")?.score, 70);
+  is("the Ezra on Julia's team is Julia's pro, not Ezra Frech", byCouple.get("stiles")?.score, 69);
+  is("a team row never sends anyone home -- but their own row still does", byCouple.get("stiles")?.eliminated, true);
+  is("the other team", [byCouple.get("wood")?.score, byCouple.get("frech")?.score, byCouple.get("shum")?.score, byCouple.get("dewan")?.score], [38, 38, 38, 38]);
+  is("both team rows matched", unmatched, []);
+}
 
 console.log("\nthe lock is 8pm on the Eastern clock, daylight time or not");
 is("week 1 is unchanged -- 8pm EDT", defaultLock(1).toISOString(), "2026-09-16T00:00:00.000Z");

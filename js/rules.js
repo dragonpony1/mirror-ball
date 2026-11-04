@@ -123,6 +123,9 @@ export function similarProps({ text, week, props = [], min = 0.5 }) {
 // top is 40. Nothing on the show's page says which, so it's read off the scores:
 // anything over 30 means four judges. The one week this misjudges is a
 // four-judge night where nobody cleared 30 — and then nobody got all 10s either.
+// Over 40 means couples danced more than once (a team dance on top of their
+// own), and a week's total can't say whether any one dance was perfect: null.
 export function outOf(weekScores = []) {
-  return weekScores.some(s => s != null && s > 30) ? 40 : 30;
+  const top = Math.max(0, ...weekScores.filter(s => s != null));
+  return top > 40 ? null : top > 30 ? 40 : 30;
 }

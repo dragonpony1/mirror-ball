@@ -29,6 +29,10 @@ on:
         description: "Quiet additive pass (no chat post)"
         type: boolean
         default: false
+      dry:
+        description: "Say what it would change, change nothing"
+        type: boolean
+        default: false
       show_props:
         description: "Read-only: list one week's props, votes and bets"
         type: string
@@ -60,7 +64,9 @@ jobs:
       - name: Decide which kind of pass this is
         id: mode
         run: |
-          if [ -n "${{ inputs.show_props }}" ]; then
+          if [ "${{ inputs.dry }}" = "true" ]; then
+            echo "flag=--dry" >> $GITHUB_OUTPUT
+          elif [ -n "${{ inputs.show_props }}" ]; then
             echo "flag=--show-props ${{ inputs.show_props }}" >> $GITHUB_OUTPUT
           elif [ -n "${{ inputs.set_lock }}" ]; then
             echo "flag=--set-lock ${{ inputs.set_lock }}" >> $GITHUB_OUTPUT

@@ -132,16 +132,28 @@ function matchCouple(label) {
 
 // A couple can dance more than once in a week (team dances, relays, the finale).
 // For fantasy purposes those all count, so the week's score is the sum.
-function foldWeek(rows) {
+// A team dance is one row naming several couples — "Alfonso Ribeiro Amber &
+// Pasha Julia & Ezra Maura & Mark Tatyana & Jan" — and every couple on the team
+// gets the team's score. Team rows never say who went home.
+export function teamCouples(label) {
+  return [...label.matchAll(/([^\s&]+)\s*&\s*([^\s&]+)/g)].map(m => matchCouple(`${m[1]} & ${m[2]}`));
+}
+
+export function foldWeek(rows) {
   const byCouple = new Map();
   const unmatched = [];
+  const add = (id, total, eliminated) => {
+    const cur = byCouple.get(id) || { score: 0, eliminated: false };
+    cur.score += total;
+    cur.eliminated = cur.eliminated || eliminated;
+    byCouple.set(id, cur);
+  };
   for (const r of rows) {
     const id = matchCouple(r.couple);
-    if (!id) { unmatched.push(r.couple); continue; }
-    const cur = byCouple.get(id) || { score: 0, eliminated: false };
-    cur.score += r.total;
-    cur.eliminated = cur.eliminated || r.eliminated;
-    byCouple.set(id, cur);
+    if (id) { add(id, r.total, r.eliminated); continue; }
+    const team = teamCouples(r.couple);
+    if (team.length >= 2 && team.every(Boolean)) { team.forEach(t => add(t, r.total, false)); continue; }
+    unmatched.push(r.couple);
   }
   return { byCouple, unmatched: [...new Set(unmatched)] };
 }
