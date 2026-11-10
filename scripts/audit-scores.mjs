@@ -57,6 +57,9 @@ const SET_LOCK = val("--set-lock") ? Number(val("--set-lock")) : null;
 // Read-only: prints one week's props, how each is settled, and the vote and
 // bet counts, so a "the app paid the wrong side" report can be checked.
 const SHOW_PROPS = val("--show-props") ? Number(val("--show-props")) : null;
+// Read-only: prints the show's own facts (scores, price overrides, week
+// settings) as JSON — shared by every league, nothing about any player.
+const DUMP_SHOW = has("--dump-show");
 const ONLY_WEEK = val("--week") ? Number(val("--week")) : null;
 const PAGE = val("--page", `Dancing_with_the_Stars_(American_TV_series)_season_${SEASON}`);
 
@@ -317,7 +320,14 @@ function writeStepSummary(text) {
 
 // Imported by the tests; only actually audit when run directly.
 const RUN_DIRECTLY = process.argv[1] && process.argv[1].endsWith("audit-scores.mjs");
-if (RUN_DIRECTLY && SHOW_PROPS) {
+if (RUN_DIRECTLY && DUMP_SHOW) {
+  Promise.all([
+    listScores(),
+    rest(`dwts_prices?season=eq.${SEASON}&select=week,couple_id,price`),
+    rest(`dwts_weeks?season=eq.${SEASON}&select=week,lock_at,no_elimination,results_in,is_finale`),
+  ]).then(([scores, prices, weeks]) => console.log("SHOW_JSON " + JSON.stringify({ scores, prices, weeks })))
+    .catch(e => { console.error(e.message); process.exit(1); });
+} else if (RUN_DIRECTLY && SHOW_PROPS) {
   (async () => {
     const leagues = await listLeagues();
     const lname = id => leagues.find(l => l.id === id)?.name || id;
