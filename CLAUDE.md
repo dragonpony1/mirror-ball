@@ -23,6 +23,9 @@ explain them in plain language, no build tools, no frameworks.
 - Calling the elimination is worth `elim_bonus` (default 10) and costs nothing.
 - Everything locks when the show starts: Tuesdays 8pm Eastern, overridable per week.
 - A couple eliminated in an earlier week is off the board for good.
+- From week 9 (`BALL_ROOM_FROM`) the cap is never less than the cheapest legal team
+  plus $14,000 (`BALL_ROOM`), so there are always Mirror Balls to earn. Without it the
+  late-season cap rose to exactly the cheapest team and nobody could bank a ball.
 - The price you PAY is frozen on the lineup row, so repricing a later week can never
   push an already-saved lineup over the cap.
 

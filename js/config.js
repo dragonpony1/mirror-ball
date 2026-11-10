@@ -8,7 +8,7 @@ export const LEAGUE_PASSCODE = "mball";
 
 // Bump on every push so phones can confirm they have the latest
 // (old copies linger in the GitHub Pages cache ~10 minutes).
-export const VERSION = "5.9";
+export const VERSION = "6.0";
 
 export const SEASON = 35;
 
@@ -27,6 +27,15 @@ export const DEFAULT_WINNER_BONUS = 50;
 // cheapest legal team, which is what stops "pick nobody and bank fifty".
 // They never expire, so they can be hoarded for a big finale flutter.
 export const DOLLARS_PER_BALL = 1000;
+
+// Late in the season only strong dancers are left, their prices have climbed,
+// and by week 9 the cheapest legal team cost more than the cap: nobody could
+// bank a single ball. From BALL_ROOM_FROM on, the cap is never less than the
+// cheapest legal team plus BALL_ROOM — the same room week 1 had (cap $50,000,
+// cheapest five $36,000), so up to 14 balls are always there to be earned.
+// Earlier weeks keep the cap they were played under.
+export const BALL_ROOM = 14000;
+export const BALL_ROOM_FROM = 9;
 export const MAX_BALLS_PER_PROP = 3;
 export const PAYS_YESNO = 10;   // points per ball on a yes/no prop
 export const PAYS_COUPLE = 25;  // points per ball on "pick a couple" — much harder

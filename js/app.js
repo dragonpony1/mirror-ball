@@ -1,5 +1,5 @@
 import { LEAGUE_PASSCODE, VERSION, DEFAULT_CAP, DEFAULT_ROSTER, DEFAULT_ELIM_BONUS, DEFAULT_WINNER_BONUS,
-         DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE,
+         DOLLARS_PER_BALL, MAX_BALLS_PER_PROP, PAYS_YESNO, PAYS_COUPLE, BALL_ROOM, BALL_ROOM_FROM,
          PROP_OKS_NEEDED, PROP_OKS_FROM,
          CATCHUP_WEEK, CATCHUP_NIGHT, CATCHUP_ROSTER, CATCHUP_CAP, CATCHUP_POINTS,
          CATCHUP_OPENS, CATCHUP_CLOSES } from "./config.js";
@@ -317,7 +317,9 @@ const stillStanding = () => CAST.filter(c => !state.scores.some(s => s.couple_id
 
 // The cap shrinks with the team, or it stops biting — $50,000 buys the three
 // best dancers outright. Never let it fall below what the cheapest legal team
-// costs, so a week can't become impossible after a round of repricing.
+// costs, so a week can't become impossible after a round of repricing — and
+// from BALL_ROOM_FROM on, never less than that plus BALL_ROOM, so there are
+// always Mirror Balls to earn (see config.js).
 function capFor(week, playerId) {
   if (isCatchUpWeek(week, playerId)) return CATCHUP_CAP;
   const roster = rosterFor(week);
@@ -325,7 +327,7 @@ function capFor(week, playerId) {
   const scaled = roster === baseRoster() ? baseCap() : Math.round(perSlot * roster / 500) * 500;
   const cheapest = activeCast(week).map(c => priceIn(c.id, week)).sort((a, b) => a - b)
     .slice(0, roster).reduce((t, p) => t + p, 0);
-  return Math.max(scaled, cheapest);
+  return Math.max(scaled, cheapest + (week >= BALL_ROOM_FROM ? BALL_ROOM : 0));
 }
 
 // ---------- Mirror Balls ----------
@@ -1888,7 +1890,8 @@ function renderRules() {
       <b>Money you don't spend isn't wasted.</b> Every ${money(DOLLARS_PER_BALL)} of cap left over
       becomes a 🪩 <b>Mirror Ball</b>. You don't need a full team to earn them. Each week is capped
       at whatever's left after the cheapest legal team, so that's the most any week can bank however
-      you pick. They never expire.
+      you pick. From week ${BALL_ROOM_FROM} the cap is always at least ${money(BALL_ROOM)} more than the
+      cheapest legal team, so up to ${BALL_ROOM / DOLLARS_PER_BALL} balls are there every week. They never expire.
     </p>
     <p class="hint" style="font-size:.9rem">
       <b>Spend Mirror Balls on prop bets.</b> Side bets on the night: <i>will anyone get a perfect score,
